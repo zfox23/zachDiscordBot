@@ -62,6 +62,9 @@ bot.on('ready', function (evt) {
     // of available emoji.
     fs.readdir("./bigEmoji", (err, files) => {
         files.forEach(file => {
+            if (file.toString() === "README.md") {
+                return;
+            }
             availableEmojis.push(file.slice(0, -4));
         });
         emojiSystemReady = true;
@@ -79,6 +82,9 @@ bot.on('ready', function (evt) {
     // don't have to be unique between people.
     fs.readdir("./sounds", (err, files) => {
         files.forEach(file => {
+            if (file.toString() === "README.md") {
+                return;
+            }
             fs.readdir("./sounds/" + file, (err, files) => {
                 var person = file;
                 files.forEach(subDirFile => {
