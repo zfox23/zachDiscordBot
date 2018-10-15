@@ -1,12 +1,30 @@
 # zachDiscordBot
 A Discord bot that I use on my Discord server.
 
-It's a useful bot...for me, and maybe for my friends :).
+It's a useful bot. For me. Maybe it's also useful for my friends?
 
-Maybe you'll find it useful as a starting point for your own bot. I try to comment all of my code very thoroughly.
+Perhaps you'll find it useful as a starting point for your own bot.
+
+## Prerequisites
+1. [NodeJS v8](https://nodejs.org/en/)
+    - NodeJS versions 9+ don't work with the `!sbv` command with `discord.js` v11 - supposedly this is fixed in `discord.js` v12
+2. A Discord account
+3. A Discord bot token
+    - Use a [guide like this](https://github.com/reactiflux/discord-irc/wiki/Creating-a-discord-bot-&-getting-a-token) if you don't know what this means.
+
+## Installation
+1. Clone this repo
+2. Rename `authTemplate.json` to `auth.json`
+3. Inside `auth.json`, replace `YOUR_DISCORD_BOT_TOKEN_HERE` with your, uh, Discord bot token
+4. Run `npm install` from a command prompt in your repo directory
+5. Run `npm ./zachBot.js` from a command prompt in your repo directory
+6. Celebrate and enjoy this cool bot 🎉
+
+## Code
+Have a look through `zachBot.js` if you're curious about how this bot works. All of the code is commented quite thoroughly.
 
 ## Commands
-zachBot (🤖 sup) currently supports the following commands:
+`zachBot` (`🤖 sup`) currently supports the following commands:
 
 - `!<help|commands|halp>`
     - Displays some helpful info.

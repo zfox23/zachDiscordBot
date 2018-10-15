@@ -133,7 +133,7 @@ var exactMessageHandlers = {
 // when the user issues the help command.
 var errorMessages = {
     "e": 'invalid emoji. usage: !e <emoji name>.\navailable emojis:\n' + availableEmojis.join(", "),
-    "sb": 'invalid arguments. usage: !sb <sound ID> <(optional) person',
+    "sb": 'invalid arguments. usage: !sb <sound ID> <(optional) person>',
     "sbv": 'invalid arguments. usage: !sbv <sound ID> <(optional) person>',
     "leave": "...i'm not in a voice channel",
     "quote": "add the '🔠' emoji to some text to get started. say !quote to get a random quote. use !quote delete <id> to delete a quote."
