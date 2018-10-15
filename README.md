@@ -17,7 +17,8 @@ Perhaps you'll find it useful as a starting point for your own bot.
 2. Rename `authTemplate.json` to `auth.json`
 3. Inside `auth.json`, replace `YOUR_DISCORD_BOT_TOKEN_HERE` with your, uh, Discord bot token
 4. Run `npm install` from a command prompt in your repo directory
-5. Run `npm ./zachBot.js` from a command prompt in your repo directory
+    - If you get an error about python, make sure you have Python 2.7 installed and set in PATH (or use `npm config set python <path to python.exe>`)
+5. Run `node ./zachBot.js` from a command prompt in your repo directory
 6. Celebrate and enjoy this cool bot 🎉
 
 ## Code
