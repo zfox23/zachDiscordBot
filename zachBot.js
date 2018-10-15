@@ -14,7 +14,8 @@ var fs = require('fs');
 var moment = require('moment');
 
 const SQLite = require("better-sqlite3");
-const sql = new SQLite('./quotes/quotes.sqlite');
+const quotesSQL = new SQLite('./quotes/quotes.sqlite');
+const soundsSQL = new SQLite('./sounds/sounds.sqlite');
 
 // Initialize discord.js Discord Bot
 var bot = new Client();
@@ -60,17 +61,44 @@ bot.on('ready', function (evt) {
     // For every file in the `./bigEmoji` directory,
     // add that filename (minus extension) to our list
     // of available emoji.
-    fs.readdir("./bigEmoji", (err, files) => {
-        files.forEach(file => {
-            if (file.toString() === "README.md") {
-                return;
-            }
-            availableEmojis.push(file.slice(0, -4));
-        });
-        emojiSystemReady = true;
-        console.log('Emoji system ready.');
-        updateReadyStatus();
-    });
+    var emojiFiles = fs.readdirSync("./bigEmoji");
+    for (var i = 0; i < emojiFiles.length; i++) {
+        if (emojiFiles[i] === "README.md") {
+            continue;
+        }
+        availableEmojis.push(emojiFiles[i].slice(0, -4));
+    }
+    emojiSystemReady = true;
+    console.log('Emoji system ready.');
+    updateReadyStatus();
+    
+    // Check if the table "quotes" exists.
+    const quotesTable = quotesSQL.prepare("SELECT count(*) FROM sqlite_master WHERE type='table' AND name = 'quotes';").get();
+    if (!quotesTable['count(*)']) {
+        // If the table isn't there, create it and setup the database correctly.
+        quotesSQL.prepare("CREATE TABLE quotes (id INTEGER PRIMARY KEY, created DATETIME DEFAULT CURRENT_TIMESTAMP, userWhoAdded TEXT, guild TEXT, channel TEXT, quote TEXT);").run();
+        // Ensure that the "id" row is always unique and indexed.
+        quotesSQL.prepare("CREATE UNIQUE INDEX idx_quotes_id ON quotes (id);").run();
+        quotesSQL.pragma("synchronous = 1");
+        quotesSQL.pragma("journal_mode = wal");
+    }
+
+    // We have some prepared statements to get, set, and delete the quote data.
+    bot.getQuote = quotesSQL.prepare("SELECT * FROM quotes WHERE guild = ? AND channel = ? AND id = ?;");
+    bot.getRandomQuote = quotesSQL.prepare("SELECT * FROM quotes WHERE guild = ? AND channel = ? ORDER BY random() LIMIT 1;");
+    bot.setQuote = quotesSQL.prepare("INSERT OR REPLACE INTO quotes (userWhoAdded, guild, channel, quote) VALUES (@userWhoAdded, @guild, @channel, @quote);");
+    bot.deleteQuote = quotesSQL.prepare("DELETE FROM quotes WHERE guild = ? AND channel = ? AND id = ?;");
+    
+    // Check if the table "sounds" exists.
+    const soundsTable = soundsSQL.prepare("SELECT count(*) FROM sqlite_master WHERE type='table' AND name = 'sounds';").get();
+    if (!soundsTable['count(*)']) {
+        // If the table isn't there, create it and setup the database correctly.
+        soundsSQL.prepare("CREATE TABLE sounds (id INTEGER PRIMARY KEY, created DATETIME DEFAULT CURRENT_TIMESTAMP, soundAuthor TEXT, soundName TEXT, sbRequested INTEGER DEFAULT 0, sbvRequested INTEGER DEFAULT 0, UNIQUE(soundAuthor, soundName));").run();
+        // Ensure that the "id" row is always unique and indexed.
+        soundsSQL.prepare("CREATE UNIQUE INDEX idx_sounds_id ON sounds (id);").run();
+        soundsSQL.pragma("synchronous = 1");
+        soundsSQL.pragma("journal_mode = wal");
+    }
     
     // For every file in the `./sounds/*` directories,
     // add that filename (minus extension) to our list
@@ -80,50 +108,46 @@ bot.on('ready', function (evt) {
     // `people` array containing the people who said that thing.
     // This is an array because sound filenames
     // don't have to be unique between people.
-    fs.readdir("./sounds", (err, files) => {
-        files.forEach(file => {
-            if (file.toString() === "README.md") {
-                return;
-            }
-            fs.readdir("./sounds/" + file, (err, files) => {
-                var person = file;
-                files.forEach(subDirFile => {
-                    var soundID = subDirFile.slice(0, -4);
-                    
-                    soundboardData.data[soundID] = {};
-                    
-                    if (!soundboardData.data[soundID]["people"]) {
-                        soundboardData.data[soundID]["people"] = [];
-                    }
-                    
-                    soundboardData.data[soundID]["people"].push(person);
-                });
-            });
-        });
+    var soundAuthors = fs.readdirSync("./sounds");
+    for (var i = 0; i < soundAuthors.length; i++) {
+        var currentAuthor = soundAuthors[i];
         
-        soundboardSystemReady = true;
-        console.log('Soundboard system ready.');
-        updateReadyStatus();
+        if (currentAuthor === "README.md" || currentAuthor.indexOf("sounds.sqlite") > -1) {
+            continue;
+        }
         
-        isReady = true;
-    });
-    
-    // Check if the table "points" exists.
-    const table = sql.prepare("SELECT count(*) FROM sqlite_master WHERE type='table' AND name = 'quotes';").get();
-    if (!table['count(*)']) {
-        // If the table isn't there, create it and setup the database correctly.
-        sql.prepare("CREATE TABLE quotes (id INTEGER PRIMARY KEY, created DATETIME DEFAULT CURRENT_TIMESTAMP, userWhoAdded TEXT, guild TEXT, channel TEXT, quote TEXT);").run();
-        // Ensure that the "id" row is always unique and indexed.
-        sql.prepare("CREATE UNIQUE INDEX idx_quotes_id ON quotes (id);").run();
-        sql.pragma("synchronous = 1");
-        sql.pragma("journal_mode = wal");
-    }
+        var soundIDs = fs.readdirSync("./sounds/" + currentAuthor);
+        for (var j = 0; j < soundIDs.length; j++) {
+            var soundID = soundIDs[j].slice(0, -4);
 
-    // And then we have two prepared statements to get and set the score data.
-    bot.getQuote = sql.prepare("SELECT * FROM quotes WHERE guild = ? AND channel = ? AND id = ?;");
-    bot.getRandomQuote = sql.prepare("SELECT * FROM quotes WHERE guild = ? AND channel = ? ORDER BY random() LIMIT 1;");
-    bot.setQuote = sql.prepare("INSERT OR REPLACE INTO quotes (userWhoAdded, guild, channel, quote) VALUES (@userWhoAdded, @guild, @channel, @quote);");
-    bot.deleteQuote = sql.prepare("DELETE FROM quotes WHERE guild = ? AND channel = ? AND id = ?;");
+            // Add metadata about the current sound into the sounds table
+            soundsSQL.prepare("INSERT OR IGNORE INTO sounds " + 
+                "(soundAuthor, soundName, sbRequested, sbvRequested) VALUES ('" +
+                currentAuthor + "', '" + soundID + "', 0, 0);").run();
+            
+            if (!soundboardData.data[soundID]) {
+                soundboardData.data[soundID] = {};
+            }
+            
+            if (!soundboardData.data[soundID]["people"]) {
+                soundboardData.data[soundID]["people"] = [];
+            }
+            
+            soundboardData.data[soundID]["people"].push(currentAuthor);
+        }
+    }
+    
+    soundboardSystemReady = true;
+    console.log('Soundboard system ready.');
+    updateReadyStatus();
+
+    // We have some prepared statements to get and set sounds usage data.
+    bot.incrementSBUsageData = soundsSQL.prepare("UPDATE sounds SET sbRequested = sbRequested + 1 WHERE soundAuthor = @soundAuthor AND soundName = @soundName;");
+    bot.incrementSBVUsageData = soundsSQL.prepare("UPDATE sounds SET sbvRequested = sbvRequested + 1 WHERE soundAuthor = @soundAuthor AND soundName = @soundName;");
+    bot.getSpecificSoundUsageData = soundsSQL.prepare("SELECT * FROM sounds WHERE soundName = ?;");
+    bot.getSpecificSoundUsageDataByAuthor = soundsSQL.prepare("SELECT *, sbRequested + sbvRequested AS totalRequests FROM sounds WHERE soundAuthor = ? ORDER BY totalRequests DESC LIMIT 50;");
+    bot.getSpecificSoundUsageDataWithAuthor = soundsSQL.prepare("SELECT * FROM sounds WHERE soundAuthor = ? AND soundName = ?;");
+    bot.getTopTenSoundUsageData = soundsSQL.prepare("SELECT *, sbRequested + sbvRequested AS totalRequests FROM sounds ORDER BY totalRequests DESC LIMIT 10;");
 });
 
 // If a user says one of the messages on the left,
@@ -142,7 +166,8 @@ var errorMessages = {
     "sb": 'invalid arguments. usage: !sb <sound ID> <(optional) person>',
     "sbv": 'invalid arguments. usage: !sbv <sound ID> <(optional) person>',
     "leave": "...i'm not in a voice channel",
-    "quote": "add the '🔠' emoji to some text to get started. say !quote to get a random quote. use !quote delete <id> to delete a quote."
+    "quote": "add the '🔠' emoji to some text to get started. say !quote to get a random quote. use !quote delete <id> to delete a quote.",
+    "soundStats": "invalid arguments. usage: !soundStats <*|(optional) sound ID> <(optional) person>"
 }
 
 // Handle all incoming messages
@@ -161,6 +186,7 @@ bot.on('message', function (message) {
         message.channel.send(exactMessageHandlers[message.content]);
     // If the very first character in a user's message is an "!", parse it as a command.
     } else if (message.content.substring(0, 1) == '!') {
+        console.log("command: " + message.content);
         // Split up arguments to the command based on spaces
         var args = message.content.substring(1).split(' ');
         // The command is the first "argument"
@@ -181,6 +207,74 @@ bot.on('message', function (message) {
                 } else {
                     message.channel.send(errorMessages[cmd]);
                 }
+            break;
+            // This command will display usage data about a sound
+            case 'soundStats':
+                var messageToSend = "";
+                var result;
+                    
+                // This argument dictates which soundID the user wants info about
+                if (args[0]) {
+                    // If a user supplies this argument, they only want info about a soundID said by a specific person
+                    if (args[1]) {
+                        // If a user supplies this argument, they want stats about all of a specific person's sounds
+                        if (args[0] === "*") {
+                            result = bot.getSpecificSoundUsageDataByAuthor.all(args[1]);
+                            
+                            if (!result) {
+                                messageToSend = "No results found for that person."
+                            } else {
+                                for (var i = 0; i < result.length; i++) {
+                                    var numTimesRequested = result[i]["sbRequested"] + result[i]["sbvRequested"];
+                                    
+                                    messageToSend += '"' + result[i]["soundAuthor"] + " - " + result[i]["soundName"] +
+                                    "\" requested " + numTimesRequested +
+                                    " time" + (numTimesRequested === 1 ? "" : "s") + ".\n";
+                                }
+                            }
+                        // If a user doesn't use "*" as args[0], they want stats about a soundID said by a specific person
+                        } else {
+                            result = bot.getSpecificSoundUsageDataWithAuthor.get(args[1], args[0]);
+                            
+                            if (!result) {
+                                messageToSend = "No results found for that person and soundID."
+                            } else {
+                                var numTimesRequested = result["sbRequested"] + result["sbvRequested"];
+                                
+                                messageToSend += '"' + result["soundAuthor"] + " - " + result["soundName"] +
+                                "\" requested " + numTimesRequested +
+                                " time" + (numTimesRequested === 1 ? "" : "s") + ".\n";
+                            }
+                        }
+                    // If a user just supplies a soundID, return stats data about sounds with that ID said by everyone who said it
+                    } else {
+                        result = bot.getSpecificSoundUsageData.all(args[0]);
+                        
+                        if (!result) {
+                            messageToSend = "No results found for that soundID."
+                        } else {
+                            for (var i = 0; i < result.length; i++) {
+                                var numTimesRequested = result[i]["sbRequested"] + result[i]["sbvRequested"];
+                                
+                                messageToSend += '"' + result[i]["soundAuthor"] + " - " + result[i]["soundName"] +
+                                "\" requested " + numTimesRequested +
+                                " time" + (numTimesRequested === 1 ? "" : "s") + ".\n";
+                            }
+                        }                        
+                    }
+                // No argument means they want total usage stats
+                } else {
+                    result = bot.getTopTenSoundUsageData.all();
+                    for (var i = 0; i < result.length; i++) {
+                        var numTimesRequested = result[i]["sbRequested"] + result[i]["sbvRequested"];
+                        
+                        messageToSend += '"' + result[i]["soundAuthor"] + " - " + result[i]["soundName"] +
+                        "\" requested " + numTimesRequested +
+                        " time" + (numTimesRequested === 1 ? "" : "s") + ".\n";
+                    }
+                }
+                
+                message.channel.send(messageToSend);
             break;
             // This command will upload a sound from the soundboard to the channel
             case 'sb':
@@ -206,11 +300,21 @@ bot.on('message', function (message) {
                         person = soundboardData.data[soundID].people[Math.floor(Math.random() * soundboardData.data[soundID].people.length)];
                     }
                     
-                    // LOG IT
-                    console.log("command: sb", "\nsoundID: " + soundID, "\nperson: " + person);
+                    var sbUsageData = {
+                        soundAuthor: person,
+                        soundName: soundID
+                    }
+                    var result = bot.incrementSBUsageData.run(sbUsageData);
+                    result = bot.getSpecificSoundUsageDataWithAuthor.get(person, soundID);
+                    var sbReplyMessage = "";
+                    if (result) {
+                        sbReplyMessage = '"' + person + " - " + soundID + "\" requested " +
+                            (result.sbRequested + result.sbvRequested) +
+                            " time" + (result.sbRequested + result.sbvRequested === 1 ? "" : "s") + ".";
+                    }
                     
                     // Attach the appropriate sound to the message.
-                    message.channel.send({
+                    message.channel.send(sbReplyMessage, {
                         file: "./sounds/" + person + "/" + soundID + '.mp3'
                     });
                 // If the user did not input a soundID...
@@ -249,6 +353,19 @@ bot.on('message', function (message) {
                     // If the user isn't in a voice channel...
                     if (!currentVoiceChannel) {
                         return message.channel.send("enter a voice channel first.");
+                    }
+                    
+                    var sbvUsageData = {
+                        soundAuthor: person,
+                        soundName: soundID
+                    }
+                    var result = bot.incrementSBVUsageData.run(sbvUsageData);
+                    result = bot.getSpecificSoundUsageDataWithAuthor.get(person, soundID);
+                    if (result) {
+                        var sbvReplyMessage = '"' + person + " - " + soundID +
+                            "\" requested " + (result.sbRequested + result.sbvRequested) +
+                            " time" + (result.sbRequested + result.sbvRequested === 1 ? "" : "s") + ".";
+                        message.channel.send(sbvReplyMessage);
                     }
                     
                     var filePath = "./sounds/" + person + "/" + soundID + '.mp3';

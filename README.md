@@ -40,6 +40,11 @@ Have a look through `zachBot.js` if you're curious about how this bot works. All
     - Joins the voice channel that the user who initiated this command is in, plays (over the voice channel) the sound file from `./sounds/` corresponding to the argument(s) to this command, then leaves the voice channel.
     - See [`./sounds/README.md`](./sounds/README.md) for more info on adding sounds to the bot's repository.
     - Example: If I was in the voice channel "General", the bot would respond to `!sbv goodbye` by joining "General", playing `./sounds/goodbye.mp3`, then leaving the voice channel.
+- `!soundStats <*|(optional) sound ID> <(optional) person>`
+    - No arguments to this means the bot will display the top 10 most requested sounds.
+    - A `sound ID` argument to this means the bot will display stats data about sounds with that ID said by everyone who said it.
+    - A `*` supplied as the `sound ID` argument will display stats data about all of a specific `person`'s sounds.
+    - A `sound ID` and `person` argument will display stats about a soundID said by a specific person.
 - `!leave`
     - Forces the bot to leave the voice channel that it's currently in. Useful if someone plays a really long sound with `!sbv` and you hate it and want them to stop and you secretly have a deep dislike for the person who used the command but you don't really want to resolve that so you just sorta keep it to yourself.
 - `!quote` OR `!quote delete <quoteID>`
