@@ -1,0 +1,9 @@
+auth.json
+package-lock.json
+node_modules/*
+bigEmoji/*
+!bigEmoji/README.md 
+quotes/*
+!quotes/README.md 
+sounds/*
+!sounds/README.md 
