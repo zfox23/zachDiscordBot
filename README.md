@@ -50,5 +50,6 @@ Have a look through `zachBot.js` if you're curious about how this bot works. All
 - `!quote` OR `!quote delete <quoteID>`
     - This one is the most complicated.
     - To start adding a quote to the database, react to a message in your channel with the 🔠 emoji. You'll then see further instructions.
+        - When the bot starts up, it will cache the last 50 messages in each channel. `discord.js` automatically caches messages it can read after it starts up. Users can only add cached messages to quotes.
     - You can use `!quote <(optional) quoteID>` to display a random or specified quote from the bot's quote database. A user will only get quotes from the server and channel in which the user invoked this command.
     - You can use `!quote delete <quoteID>` to delete a quote from the bot's quote database. A user can only delete a quote from the DB if they're in the server and channel associated with that quote ID.

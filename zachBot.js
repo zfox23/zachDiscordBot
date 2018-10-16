@@ -148,6 +148,12 @@ bot.on('ready', function (evt) {
     bot.getSpecificSoundUsageDataByAuthor = soundsSQL.prepare("SELECT *, sbRequested + sbvRequested AS totalRequests FROM sounds WHERE soundAuthor = ? ORDER BY totalRequests DESC LIMIT 50;");
     bot.getSpecificSoundUsageDataWithAuthor = soundsSQL.prepare("SELECT * FROM sounds WHERE soundAuthor = ? AND soundName = ?;");
     bot.getTopTenSoundUsageData = soundsSQL.prepare("SELECT *, sbRequested + sbvRequested AS totalRequests FROM sounds ORDER BY totalRequests DESC LIMIT 10;");
+
+    bot.guilds.forEach((channel) => {
+        if (channel.type == "text" && channel.permissionsFor(guild.me).has("READ_MESSAGES")) {
+            channel.fetchMessages({ limit: 50 });
+        }
+    })
 });
 
 // If a user says one of the messages on the left,
