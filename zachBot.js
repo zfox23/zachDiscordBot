@@ -9,9 +9,12 @@
 
 // Includes
 const { Client } = require('discord.js');
-var auth = require('./auth.json');
-var fs = require('fs');
-var moment = require('moment');
+const auth = require('./auth.json');
+const fs = require('fs');
+const moment = require('moment');
+const ytdl = require('ytdl-core');
+const {google} = require('googleapis');
+const {googleAuth} = require('google-auth-library');
 
 const SQLite = require("better-sqlite3");
 const quotesSQL = new SQLite('./quotes/quotes.sqlite');
@@ -20,13 +23,18 @@ const soundsSQL = new SQLite('./sounds/sounds.sqlite');
 // Initialize discord.js Discord Bot
 var bot = new Client();
 
-// Log in with the auth token stored in `auth.json`
-bot.login(auth.token);
+// Log in with the `discordToken` auth token stored in `auth.json`
+bot.login(auth.discordToken);
+const youtubeAuthToken = auth.youtubeToken;
 
 // Don't handle any commands until `isReady` is set to true
 var isReady = false;
 // Used to determine the voice channel in which the bot is located
 var currentVoiceChannel = false;
+// Used when connected to a voice channel
+var currentVoiceConnection = false;
+// Used when playing media
+var currentStreamDispatcher = false;
 // Populated by the contents of the `bigEmoji` folder
 var availableEmojis = [];
 // Populated by the contents of the `sounds` folder
@@ -158,7 +166,7 @@ bot.on('ready', function (evt) {
 
 // If a user says one of the messages on the left,
 // the bot will respond with the message on the right
-var exactMessageHandlers = {
+const exactMessageHandlers = {
     "cool cool cool": "cool cool cool cool cool cool",
     "ya gotta have your bot!": "ya just gotta!"
 }
@@ -167,13 +175,107 @@ var exactMessageHandlers = {
 // key is command, value is error message.
 // The keys in this object are used to enumerate the valid commands
 // when the user issues the help command.
-var errorMessages = {
+const errorMessages = {
     "e": 'invalid emoji. usage: !e <emoji name>.\navailable emojis:\n' + availableEmojis.join(", "),
     "sb": 'invalid arguments. usage: !sb <sound ID> <(optional) person>',
     "sbv": 'invalid arguments. usage: !sbv <sound ID> <(optional) person>',
     "leave": "...i'm not in a voice channel",
     "quote": "add the '🔠' emoji to some text to get started. say !quote to get a random quote. use !quote delete <id> to delete a quote.",
-    "soundStats": "invalid arguments. usage: !soundStats <*|(optional) sound ID> <(optional) person>"
+    "soundStats": "invalid arguments. usage: !soundStats <*|(optional) sound ID> <(optional) person>",
+    "ytv": "invalid arguments. usage: !ytv <search query in \"QUOTES\"|link to youtube video>",
+    "v": "invalid arguments. usage: !v <pause|resume|vol> <volume value>"
+}
+
+function getFirstYouTubeResult(query, callback) {
+    var youtubeServcice = google.youtube('v3');
+    var parameters = {
+        'maxResults': '1',
+        'part': 'snippet',
+        'q': query,
+        'type': 'video',
+        'regionCode': 'US'
+    };
+    parameters['auth'] = youtubeAuthToken;
+    youtubeServcice.search.list(parameters, function(err, response) {
+        if (err) {
+            console.log('The API returned an error: ' + err);
+            return;
+        }
+        var videoId = response.data.items[0].id.videoId;
+        var fullUrl = "https://www.youtube.com/watch?v=" + videoId;
+        var videoTitle = response.data.items[0].snippet.title;
+        callback(fullUrl, videoTitle);
+    });
+}
+
+function handleVoiceStream(message, filePathOrUrl) {
+    var filePath = false;
+    var youtubeUrlToPlay = false;
+    
+    // The assumption here is that the caller has already
+    // verified that what's passed to `handleVoiceStream()` is
+    // either a valid YouTube URL or a valid local file path.
+    if (filePathOrUrl.indexOf("youtube.com") > -1) {
+        youtubeUrlToPlay = filePathOrUrl;
+    } else {
+        filePath = filePathOrUrl;
+    }
+    
+    var playAudio = function() {
+        // If what we're trying to play is a local file...
+        if (filePath) {
+            if (currentStreamDispatcher) {
+                currentStreamDispatcher.end();
+            }
+            // This only works completely when using discord.js v11 and Node.js v8
+            // Node.js v9 and newer won't play short files completely
+            // Apparently this is fixed in discord.js v12, but I couldn't get the master
+            // branch to work.
+            currentStreamDispatcher = currentVoiceConnection.playFile(filePath);
+            // When the sound has finished playing...
+            currentStreamDispatcher.on("end", end => {
+                currentStreamDispatcher = false;
+            });
+        } else if (youtubeUrlToPlay) {
+            if (currentStreamDispatcher) {
+                currentStreamDispatcher.end();
+            }
+            const stream = ytdl(youtubeUrlToPlay, { filter : 'audioonly' });
+            const streamOptions = { seek: 0, volume: 1 };
+            currentStreamDispatcher = currentVoiceConnection.playStream(stream, streamOptions);
+            // When the sound has finished playing...
+            currentStreamDispatcher.on("end", end => {
+                currentStreamDispatcher = false;
+            });
+        } else {
+            return message.channel.send("What you want to play is not a file path or a YouTube URL.");
+        }
+    }
+    
+    // If the bot isn't already in a voice channel...
+    if (!currentVoiceChannel) {
+        // Set `currentVoiceChannel` to the voice channel
+        // that the user who issued the command is in
+        currentVoiceChannel = message.member.voiceChannel || false;
+        
+        // If the user isn't in a voice channel...
+        if (!currentVoiceChannel) {
+            return message.channel.send("enter a voice channel first.");
+        }
+    
+        currentVoiceChannel.join()
+        .then(connection => {
+            currentVoiceConnection = connection;
+            playAudio();
+        }).catch(console.error);
+    } else {
+        if (!currentStreamDispatcher || !currentVoiceConnection) {
+            return message.channel.send("for some reason, i'm in a voice channel but " +
+                "i don't have either a dispatcher or a voice connection :(");
+        } else {
+            playAudio();
+        }
+    }
 }
 
 // Handle all incoming messages
@@ -352,14 +454,6 @@ bot.on('message', function (message) {
                         // ...choose a random person associated with the soundID.
                         person = soundboardData.data[soundID].people[Math.floor(Math.random() * soundboardData.data[soundID].people.length)];
                     }
-                
-                    // Set `currentVoiceChannel` to the voice channel
-                    // that the user who issued the command is in
-                    currentVoiceChannel = message.member.voiceChannel || false;
-                    // If the user isn't in a voice channel...
-                    if (!currentVoiceChannel) {
-                        return message.channel.send("enter a voice channel first.");
-                    }
                     
                     var sbvUsageData = {
                         soundAuthor: person,
@@ -375,23 +469,73 @@ bot.on('message', function (message) {
                     }
                     
                     var filePath = "./sounds/" + person + "/" + soundID + '.mp3';
-                    currentVoiceChannel.join()
-                    .then(connection => {
-                        // This only works completely when using discord.js v11 and Node.js v8
-                        // Node.js v9 and newer won't play short files completely
-                        // Apparently this is fixed in discord.js v12, but I couldn't get the master
-                        // branch to work.
-                        const dispatcher = connection.playFile(filePath);
-                        // When the sound has finished playing...
-                        dispatcher.on("end", end => {
-                            // ...leave the voice channel.
-                            currentVoiceChannel.leave();
-                            currentVoiceChannel = false;
-                        });
-                    }).catch(console.error);
-                    
                     console.log("command: sbv", "\nsoundID: " + soundID, "\nperson: " + person, "\npath: " + filePath + "\n");
+                    
+                    handleVoiceStream(message, filePath);
                 // If the user did not input a soundID...
+                } else {
+                    message.channel.send(errorMessages[cmd]);
+                }
+            break;
+            case 'ytv':    
+                if (args[0]) {
+                    // If the user directly input a YouTube video to play...   
+                    if (args[0].indexOf("youtube.com") > -1) {
+                        handleVoiceStream(message, args[0]);
+                    // If the user is searching for a video...   
+                    } else if (args[0].startsWith('"')) {
+                        var searchQuery = args.join(' ');
+                        searchQuery = searchQuery.slice(1, -1);
+                        getFirstYouTubeResult(searchQuery, function(youtubeUrl, title) {
+                            message.channel.send('Playing "' + title + '" from ' + youtubeUrl);
+                            handleVoiceStream(message, youtubeUrl);
+                        });
+                    } else {
+                        message.channel.send(errorMessages[cmd]);
+                    }
+                } else {
+                    message.channel.send(errorMessages[cmd]);
+                }
+            break;
+            case 'v':
+                if (args[0]) {
+                    if (args[0] === "pause") {
+                        if (currentStreamDispatcher) {
+                            currentStreamDispatcher.pause();
+                        }
+                    } else if (args[0] === "resume") {
+                        if (currentStreamDispatcher) {
+                            currentStreamDispatcher.resume();
+                        }
+                    } else if (args[0] === "vol" || args[0] === "volume") {
+                        if (args[1]) {
+                            var volume = parseFloat(args[1]);
+                            if (volume <= 2 && volume >= 0) {
+                                if (currentStreamDispatcher) {
+                                    var currentVolume = currentStreamDispatcher.volume;
+                                    var targetVolume = volume;
+                                    var stepSize = (targetVolume - currentVolume) / 50;
+                                    var counter = 0;
+                                    var interval = setInterval(function() {
+                                        currentVolume = currentStreamDispatcher.volume;
+                                        if (counter >= 50) {
+                                            clearInterval(interval);
+                                            return;
+                                        } else {
+                                            currentStreamDispatcher.setVolume(currentVolume + stepSize);
+                                        }
+                                        counter++;
+                                    }, 10);
+                                } else {
+                                    message.channel.send("no current stream");
+                                }
+                            } else {
+                                message.channel.send("volume must be between 0 and 2");
+                            }
+                        } else {
+                            message.channel.send(errorMessages[cmd]);
+                        }
+                    }                    
                 } else {
                     message.channel.send(errorMessages[cmd]);
                 }
@@ -399,8 +543,11 @@ bot.on('message', function (message) {
             // This command will force the bot to leave the voice channel that it's in.
             case 'leave':
                 if (currentVoiceChannel) {
+                    currentStreamDispatcher.end();
+                    currentStreamDispatcher = false;
                     currentVoiceChannel.leave();
                     currentVoiceChannel = false;
+                    currentVoiceConnection = false;
                 } else {
                     message.channel.send(errorMessages[cmd]);
                 }
