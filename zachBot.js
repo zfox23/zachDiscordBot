@@ -374,6 +374,16 @@ bot.on('message', function (message) {
         var cmd = args[0];
         // After this operation, the `args` array will only contain arguments to `cmd`
         args = args.splice(1);
+
+		// If the "command" is actually an emoji, display the emoji instead of parsing the command.
+		// This would seem like a bug if you named one of your emojis the same as one of the commands,
+		// but I don't expect that to happen. That'd be weird.
+		if (availableEmojis.indexOf(cmd) > -1) {
+			message.channel.send({
+				file: "./bigEmoji/" + availableEmojis[availableEmojis.indexOf(cmd)] + ".png"
+			});
+			return;
+		}
         
         // Switch based on the command given
         switch(cmd) {
