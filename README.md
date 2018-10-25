@@ -36,7 +36,7 @@ Have a look through `zachBot.js` if you're curious about how this bot works. All
     - Adds a YouTube video's audio to the YouTube playlist. See `!yp` command details below for more about playlist commands.
     - If no audio is currently playing, the bot will start autoplaying the video you just added.
 - `!yp <list|next|back|clear>` OR `!yp del <index to delete>` OR `!yp repeat <(optional) none|one|all>`
-    - `!yp list` will list all of the videos in the YouTube playlist and show a `*` next to the video that's currently playing.
+    - `!yp list` will list all of the videos in the YouTube playlist and show a `🎶` next to the video that's currently playing.
     - `!yp next` will skip forwards to the next video in the YouTube playlist, if one exists.
     - `!yp back` will skip backwards to the previous video in the YouTube playlist, if one exists.
     - `!yp clear` will clear the YouTube playlist and stop any currently-playing video.

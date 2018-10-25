@@ -279,7 +279,7 @@ function handleListYouTubePlaylist(message) {
             getYouTubeVideoTitleFromURL(youTubePlaylist[i], i, function(title, index) {
                 indexString = index;
                 if (index === currentYouTubePlaylistPosition && currentStreamDispatcher) {
-                    indexString = "* " + index;
+                    indexString = "🎶 " + index;
                 }
                 playlistArray[index] = (indexString + ". " + title);
                 // This guarantees that the order of the playlist is the order
