@@ -35,6 +35,8 @@ var currentVoiceChannel = false;
 var currentVoiceConnection = false;
 // Used when playing media
 var currentStreamDispatcher = false;
+// Used when playing YouTube video
+var youtubeVolume = 1.0;
 // Populated by the contents of the `bigEmoji` folder
 var availableEmojis = [];
 // Populated by the contents of the `sounds` folder
@@ -182,12 +184,35 @@ const errorMessages = {
     "leave": "...i'm not in a voice channel",
     "quote": "add the '🔠' emoji to some text to get started. say !quote to get a random quote. use !quote delete <id> to delete a quote.",
     "soundStats": "invalid arguments. usage: !soundStats <*|(optional) sound ID> <(optional) person>",
-    "ytv": "invalid arguments. usage: !ytv <search query in \"QUOTES\"|link to youtube video>",
-    "v": "invalid arguments. usage: !v <pause|resume|vol> <volume value>"
+    "y": "invalid arguments. usage: !y <search query in \"QUOTES\"|link to youtube video>",
+    "yp": "invalid arguments. usage: !yp <list|next|back>",
+    "v": "invalid arguments. usage: !v <pause|resume|vol> <(optional) volume value>"
+}
+
+function getYouTubeVideoTitleFromURL(youTubeURL, callback) {
+    var videoId = youTubeURL.substr(-11);
+    
+    var youtubeService = google.youtube('v3');
+    var parameters = {
+        'maxResults': '1',
+        'part': 'snippet',
+        'q': videoId,
+        'type': 'video',
+        'regionCode': 'US'
+    };
+    parameters['auth'] = youtubeAuthToken;
+    youtubeService.search.list(parameters, function(err, response) {
+        if (err) {
+            console.log('The API returned an error: ' + err);
+            return;
+        }
+        var videoTitle = response.data.items[0].snippet.title;
+        callback(videoTitle);
+    });
 }
 
 function getFirstYouTubeResult(query, callback) {
-    var youtubeServcice = google.youtube('v3');
+    var youtubeService = google.youtube('v3');
     var parameters = {
         'maxResults': '1',
         'part': 'snippet',
@@ -196,7 +221,7 @@ function getFirstYouTubeResult(query, callback) {
         'regionCode': 'US'
     };
     parameters['auth'] = youtubeAuthToken;
-    youtubeServcice.search.list(parameters, function(err, response) {
+    youtubeService.search.list(parameters, function(err, response) {
         if (err) {
             console.log('The API returned an error: ' + err);
             return;
@@ -208,7 +233,49 @@ function getFirstYouTubeResult(query, callback) {
     });
 }
 
-function handleVoiceStream(message, filePathOrUrl) {
+var youTubePlaylist = [];
+var currentYouTubePlaylistPosition = 0;
+function addToYouTubePlaylist(youtubeURL, message) {
+    youTubePlaylist.push(youtubeURL);
+    
+    if (youTubePlaylist.length === 1) {
+        handleVoiceStream(youTubePlaylist[0], message);
+    }
+}
+
+function handleNextInYouTubePlaylist() {
+    if (youTubePlaylist.length > currentYouTubePlaylistPosition + 1) {
+        currentYouTubePlaylistPosition++;
+        handleVoiceStream(youTubePlaylist[currentYouTubePlaylistPosition]);
+    }
+}
+
+function handleBackInYouTubePlaylist() {
+    if (currentYouTubePlaylistPosition !== 0) {
+        currentYouTubePlaylistPosition--;
+        handleVoiceStream(youTubePlaylist[currentYouTubePlaylistPosition]);
+    }
+}
+
+function handleListYouTubePlaylist(message) {
+    if (youTubePlaylist.length === 0) {
+        message.channel.send("Playlist is empty, boss!");
+    } else {
+        message.channel.send("Here's the current YouTube Playlist:\n");
+        for (var i = 0; i < youTubePlaylist.length; i++) {
+            getYouTubeVideoTitleFromURL(youTubePlaylist[i], function(title) {
+                message.channel.send(i + ". " + title + '\n');
+            });
+        }
+    }
+}
+
+function handleClearYouTubePlaylist(message) {
+    youTubePlaylist = [];
+    message.channel.send("YouTube playlist cleared.");
+}
+
+function handleVoiceStream(filePathOrUrl, message) {
     var filePath = false;
     var youtubeUrlToPlay = false;
     
@@ -235,20 +302,22 @@ function handleVoiceStream(message, filePathOrUrl) {
             // When the sound has finished playing...
             currentStreamDispatcher.on("end", end => {
                 currentStreamDispatcher = false;
+                
             });
         } else if (youtubeUrlToPlay) {
             if (currentStreamDispatcher) {
                 currentStreamDispatcher.end();
             }
             const stream = ytdl(youtubeUrlToPlay, { filter : 'audioonly' });
-            const streamOptions = { seek: 0, volume: 1 };
+            const streamOptions = { volume: youtubeVolume, seek: 0 };
             currentStreamDispatcher = currentVoiceConnection.playStream(stream, streamOptions);
             // When the sound has finished playing...
             currentStreamDispatcher.on("end", end => {
                 currentStreamDispatcher = false;
+                handleNextInYouTubePlaylist();
             });
         } else {
-            return message.channel.send("What you want to play is not a file path or a YouTube URL.");
+            return console.log("What you want to play is not a file path or a YouTube URL.");
         }
     }
     
@@ -260,7 +329,9 @@ function handleVoiceStream(message, filePathOrUrl) {
         
         // If the user isn't in a voice channel...
         if (!currentVoiceChannel) {
-            return message.channel.send("enter a voice channel first.");
+            if (message) {
+                return message.channel.send("enter a voice channel first.");
+            }
         }
     
         currentVoiceChannel.join()
@@ -269,9 +340,11 @@ function handleVoiceStream(message, filePathOrUrl) {
             playAudio();
         }).catch(console.error);
     } else {
-        if (!currentStreamDispatcher || !currentVoiceConnection) {
-            return message.channel.send("for some reason, i'm in a voice channel but " +
-                "i don't have either a dispatcher or a voice connection :(");
+        if (!currentVoiceConnection) {
+            if (message) {
+                message.channel.send("for some reason, i'm in a voice channel but " +
+                    "i don't have a voice connection :(");
+            }
         } else {
             playAudio();
         }
@@ -471,30 +544,69 @@ bot.on('message', function (message) {
                     var filePath = "./sounds/" + person + "/" + soundID + '.mp3';
                     console.log("command: sbv", "\nsoundID: " + soundID, "\nperson: " + person, "\npath: " + filePath + "\n");
                     
-                    handleVoiceStream(message, filePath);
+                    
+                    if (currentStreamDispatcher) {
+                        currentStreamDispatcher.setVolume(1.0);
+                    }
+                    handleVoiceStream(filePath, message);
                 // If the user did not input a soundID...
                 } else {
                     message.channel.send(errorMessages[cmd]);
                 }
             break;
-            case 'ytv':    
+            case 'y':
                 if (args[0]) {
                     // If the user directly input a YouTube video to play...   
                     if (args[0].indexOf("youtube.com") > -1) {
-                        handleVoiceStream(message, args[0]);
+                        message.channel.send('Adding ' + args[0] + " to the yp.");
+                        addToYouTubePlaylist(args[0], message);
                     // If the user is searching for a video...   
                     } else if (args[0].startsWith('"')) {
                         var searchQuery = args.join(' ');
                         searchQuery = searchQuery.slice(1, -1);
                         getFirstYouTubeResult(searchQuery, function(youtubeUrl, title) {
-                            message.channel.send('Playing "' + title + '" from ' + youtubeUrl);
-                            handleVoiceStream(message, youtubeUrl);
+                            message.channel.send('Adding "' + title + '" from ' + youtubeUrl + " to the yp.");
+                            addToYouTubePlaylist(youtubeUrl, message);
                         });
                     } else {
                         message.channel.send(errorMessages[cmd]);
                     }
                 } else {
                     message.channel.send(errorMessages[cmd]);
+                }
+            break;
+            case 'yp':
+                if (args[0]) {
+                    var playlistCommand = args[0];
+                    if (playlistCommand === "next") {
+                        handleNextInYouTubePlaylist();
+                    } else if (playlistCommand === "back") {
+                        handleBackInYouTubePlaylist();
+                    } else if (playlistCommand === "list") {
+                        handleListYouTubePlaylist(message);
+                    } else if (playlistCommand === "clear") {
+                        handleClearYouTubePlaylist(message);
+                    } else {
+                        message.channel.send(errorMessages[cmd]);
+                    }
+                } else {
+                    message.channel.send(errorMessages[cmd]);
+                }
+            break;
+            case 'next':
+                handleNextInYouTubePlaylist();
+            break;
+            case 'back':
+                handleBackInYouTubePlaylist();
+            break;
+            case 'pause':
+                if (currentStreamDispatcher) {
+                    currentStreamDispatcher.pause();
+                }
+            break;
+            case 'resume':
+                if (currentStreamDispatcher) {
+                    currentStreamDispatcher.resume();
                 }
             break;
             case 'v':
@@ -513,8 +625,9 @@ bot.on('message', function (message) {
                             if (volume <= 2 && volume >= 0) {
                                 if (currentStreamDispatcher) {
                                     var currentVolume = currentStreamDispatcher.volume;
-                                    var targetVolume = volume;
-                                    var stepSize = (targetVolume - currentVolume) / 50;
+                                    youtubeVolume = volume;
+                                    message.channel.send("set youtube music volume to " + youtubeVolume);
+                                    var stepSize = (youtubeVolume - currentVolume) / 50;
                                     var counter = 0;
                                     var interval = setInterval(function() {
                                         currentVolume = currentStreamDispatcher.volume;
@@ -533,7 +646,11 @@ bot.on('message', function (message) {
                                 message.channel.send("volume must be between 0 and 2");
                             }
                         } else {
-                            message.channel.send(errorMessages[cmd]);
+                            if (currentStreamDispatcher) {
+                                message.channel.send(currentStreamDispatcher.volume);
+                            } else {
+                                message.channel.send("There's no `currentStreamDispatcher`, boss! Start playin' something!");
+                            }
                         }
                     }                    
                 } else {
