@@ -633,10 +633,11 @@ bot.on('message', function (message) {
                         if (args[1]) {
                             var volume = parseFloat(args[1]);
                             if (volume <= 2 && volume >= 0) {
+                                youtubeVolume = volume;
+                                message.channel.send("set youtube music volume to " + youtubeVolume);
+
                                 if (currentStreamDispatcher) {
                                     var currentVolume = currentStreamDispatcher.volume;
-                                    youtubeVolume = volume;
-                                    message.channel.send("set youtube music volume to " + youtubeVolume);
                                     var stepSize = (youtubeVolume - currentVolume) / 50;
                                     var counter = 0;
                                     var interval = setInterval(function() {
@@ -649,8 +650,6 @@ bot.on('message', function (message) {
                                         }
                                         counter++;
                                     }, 10);
-                                } else {
-                                    message.channel.send("no current stream");
                                 }
                             } else {
                                 message.channel.send("volume must be between 0 and 2");
