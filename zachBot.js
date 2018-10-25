@@ -185,11 +185,11 @@ const errorMessages = {
     "quote": "add the '🔠' emoji to some text to get started. say !quote to get a random quote. use !quote delete <id> to delete a quote.",
     "soundStats": "invalid arguments. usage: !soundStats <*|(optional) sound ID> <(optional) person>",
     "y": "invalid arguments. usage: !y <search query in \"QUOTES\"|link to youtube video>",
-    "yp": "invalid arguments. usage: !yp <list|next|back>",
+    "yp": "invalid arguments. usage: !yp <list|next|back|del|repeat> <(when del is the command) index | (when repeat is the command) none|one|all>",
     "v": "invalid arguments. usage: !v <pause|resume|vol> <(optional) volume value>"
 }
 
-function getYouTubeVideoTitleFromURL(youTubeURL, callback) {
+function getYouTubeVideoTitleFromURL(youTubeURL, indexInPlaylist, callback) {
     var videoId = youTubeURL.substr(-11);
     
     var youtubeService = google.youtube('v3');
@@ -207,7 +207,7 @@ function getYouTubeVideoTitleFromURL(youTubeURL, callback) {
             return;
         }
         var videoTitle = response.data.items[0].snippet.title;
-        callback(videoTitle);
+        callback(videoTitle, indexInPlaylist);
     });
 }
 
@@ -234,12 +234,14 @@ function getFirstYouTubeResult(query, callback) {
 }
 
 var youTubePlaylist = [];
-var currentYouTubePlaylistPosition = 0;
+var currentYouTubePlaylistPosition = -1;
+var youTubePlaylistRepeatMode = "none";
 function addToYouTubePlaylist(youtubeURL, message) {
     youTubePlaylist.push(youtubeURL);
     
-    if (youTubePlaylist.length === 1) {
-        handleVoiceStream(youTubePlaylist[0], message);
+    if (!currentStreamDispatcher) {
+        currentYouTubePlaylistPosition++;
+        handleVoiceStream(youTubePlaylist[currentYouTubePlaylistPosition], message);
     }
 }
 
@@ -258,13 +260,23 @@ function handleBackInYouTubePlaylist() {
 }
 
 function handleListYouTubePlaylist(message) {
+    var playlistArray = [];
     if (youTubePlaylist.length === 0) {
         message.channel.send("Playlist is empty, boss!");
     } else {
         message.channel.send("Here's the current YouTube Playlist:\n");
         for (var i = 0; i < youTubePlaylist.length; i++) {
-            getYouTubeVideoTitleFromURL(youTubePlaylist[i], function(title) {
-                message.channel.send(i + ". " + title + '\n');
+            getYouTubeVideoTitleFromURL(youTubePlaylist[i], i, function(title, index) {
+                indexString = index;
+                if (index === currentYouTubePlaylistPosition && currentStreamDispatcher) {
+                    indexString = "* " + index;
+                }
+                playlistArray[index] = (indexString + ". " + title);
+                // This guarantees that the order of the playlist is the order
+                // in which the playlist is displayed in-channel to the user
+                if (playlistArray.length === youTubePlaylist.length) {
+                    message.channel.send(playlistArray.join("\n"));
+                }
             });
         }
     }
@@ -272,7 +284,37 @@ function handleListYouTubePlaylist(message) {
 
 function handleClearYouTubePlaylist(message) {
     youTubePlaylist = [];
+    currentYouTubePlaylistPosition = -1;
     message.channel.send("YouTube playlist cleared.");
+    
+    // If there's something playing, stop it.
+    if (currentStreamDispatcher) {
+        currentStreamDispatcher.end('playlistCleared');
+    }
+}
+
+function deleteIndexFromYouTubePlaylist(message, indexToDelete) {
+    indexToDelete = parseInt(indexToDelete);
+    if (!youTubePlaylist[indexToDelete]) {
+        message.channel.send("That playlist item doesn't exist yet, friendo!");
+        return;
+    }
+    
+    getYouTubeVideoTitleFromURL(youTubePlaylist[indexToDelete], indexToDelete, function(title, index) {
+        youTubePlaylist.splice(indexToDelete, 1);
+        message.channel.send(index + ". " + title + ' deleted from playlist.');
+        
+        // If a user just deleted the song they're currently listening to,
+        // stop the current song.
+        if (indexToDelete === currentYouTubePlaylistPosition && currentStreamDispatcher) {
+            currentStreamDispatcher.end('playlistIndexDeleted');
+            // If the next song exists in the playlist...
+            if (youTubePlaylist[currentYouTubePlaylistPosition]) {
+                // ...play it immediately.
+                handleVoiceStream(youTubePlaylist[currentYouTubePlaylistPosition], message);
+            }
+        }
+    });
 }
 
 function handleVoiceStream(filePathOrUrl, message) {
@@ -292,7 +334,7 @@ function handleVoiceStream(filePathOrUrl, message) {
         // If what we're trying to play is a local file...
         if (filePath) {
             if (currentStreamDispatcher) {
-                currentStreamDispatcher.end();
+                currentStreamDispatcher.end('newAudio');
             }
             // This only works completely when using discord.js v11 and Node.js v8
             // Node.js v9 and newer won't play short files completely
@@ -302,19 +344,37 @@ function handleVoiceStream(filePathOrUrl, message) {
             // When the sound has finished playing...
             currentStreamDispatcher.on("end", end => {
                 currentStreamDispatcher = false;
-                
             });
         } else if (youtubeUrlToPlay) {
             if (currentStreamDispatcher) {
-                currentStreamDispatcher.end();
+                currentStreamDispatcher.end('newAudio');
             }
             const stream = ytdl(youtubeUrlToPlay, { filter : 'audioonly' });
             const streamOptions = { volume: youtubeVolume, seek: 0 };
             currentStreamDispatcher = currentVoiceConnection.playStream(stream, streamOptions);
             // When the sound has finished playing...
-            currentStreamDispatcher.on("end", end => {
+            currentStreamDispatcher.on("end", reason => {
                 currentStreamDispatcher = false;
-                handleNextInYouTubePlaylist();
+                if (!currentVoiceChannel) {
+                    return;
+                }
+                
+                // In all cases we manually call .end(), we don't want
+                // the bot to handle going to the next song.
+                // yt-dl stream ends cause the reason below to be listed.
+                if (reason && reason !== "Stream is not generating quickly enough.") {
+                    return;
+                }
+                
+                if (youTubePlaylistRepeatMode === "one") {
+                    handleVoiceStream(youTubePlaylist[currentYouTubePlaylistPosition], message);
+                } else if (youTubePlaylistRepeatMode === "all" &&
+                    currentYouTubePlaylistPosition === (youTubePlaylist.length - 1)) {
+                    currentYouTubePlaylistPosition = -1;
+                    handleNextInYouTubePlaylist();
+                } else {
+                    handleNextInYouTubePlaylist();
+                }
             });
         } else {
             return console.log("What you want to play is not a file path or a YouTube URL.");
@@ -568,7 +628,7 @@ bot.on('message', function (message) {
                 if (args[0]) {
                     // If the user directly input a YouTube video to play...   
                     if (args[0].indexOf("youtube.com") > -1) {
-                        message.channel.send('Adding ' + args[0] + " to the yp.");
+                        message.channel.send('Adding `' + args[0] + "` to the yp.");
                         addToYouTubePlaylist(args[0], message);
                     // If the user is searching for a video...   
                     } else if (args[0].startsWith('"')) {
@@ -596,6 +656,19 @@ bot.on('message', function (message) {
                         handleListYouTubePlaylist(message);
                     } else if (playlistCommand === "clear") {
                         handleClearYouTubePlaylist(message);
+                    } else if (playlistCommand === "del" || playlistCommand === "delete") {
+                        if (args[1]) {
+                            deleteIndexFromYouTubePlaylist(message, args[1]);
+                        } else {
+                            message.channel.send(errorMessages[cmd]);
+                        }
+                    } else if (playlistCommand === "repeat") {
+                        if (args[1] === "none" || args[1] === "one" || args[1] === "all") {
+                            youTubePlaylistRepeatMode = args[1];
+                            message.channel.send("YouTube playlist repeat mode is now: " + youTubePlaylistRepeatMode);
+                        } else {
+                            message.channel.send("YouTube playlist repeat mode is currently: " + youTubePlaylistRepeatMode);
+                        }
                     } else {
                         message.channel.send(errorMessages[cmd]);
                     }
@@ -638,11 +711,11 @@ bot.on('message', function (message) {
 
                                 if (currentStreamDispatcher) {
                                     var currentVolume = currentStreamDispatcher.volume;
-                                    var stepSize = (youtubeVolume - currentVolume) / 50;
+                                    var stepSize = (youtubeVolume - currentVolume) / 20;
                                     var counter = 0;
                                     var interval = setInterval(function() {
                                         currentVolume = currentStreamDispatcher.volume;
-                                        if (counter >= 50) {
+                                        if (counter >= 20) {
                                             clearInterval(interval);
                                             return;
                                         } else {
@@ -669,8 +742,10 @@ bot.on('message', function (message) {
             // This command will force the bot to leave the voice channel that it's in.
             case 'leave':
                 if (currentVoiceChannel) {
-                    currentStreamDispatcher.end();
-                    currentStreamDispatcher = false;
+                    if (currentStreamDispatcher) {
+                        currentStreamDispatcher.end('leaving');
+                        currentStreamDispatcher = false;
+                    }
                     currentVoiceChannel.leave();
                     currentVoiceChannel = false;
                     currentVoiceConnection = false;
