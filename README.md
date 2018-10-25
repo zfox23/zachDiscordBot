@@ -11,15 +11,18 @@ Perhaps you'll find it useful as a starting point for your own bot.
 2. A Discord account
 3. A Discord bot token
     - Use a [guide like this](https://github.com/reactiflux/discord-irc/wiki/Creating-a-discord-bot-&-getting-a-token) if you don't know what this means.
+4. A YouTube API token
+    - You can get one of those via the [Google Developer Console](https://console.developers.google.com/apis/api/youtube.googleapis.com/credentials).
 
 ## Installation
 1. Clone this repo
 2. Rename `authTemplate.json` to `auth.json`
-3. Inside `auth.json`, replace `YOUR_DISCORD_BOT_TOKEN_HERE` with your, uh, Discord bot token
-4. Run `npm install` from a command prompt in your repo directory
+3. Inside `auth.json`, replace `YOUR_DISCORD_BOT_TOKEN_HERE` with your Discord bot token
+4. Inside `auth.json`, replease `YOUR_YOUTUBE_API_TOKEN_HERE` with your YouTube API token
+5. Run `npm install` from a command prompt in your repo directory
     - If you get an error about python, make sure you have Python 2.7 installed and set in PATH (or use `npm config set python <path to python.exe>`)
-5. Run `node ./zachBot.js` from a command prompt in your repo directory
-6. Celebrate and enjoy this cool bot 🎉
+6. Run `node ./zachBot.js` from a command prompt in your repo directory
+7. Celebrate and enjoy this cool bot 🎉
 
 ## Code
 Have a look through `zachBot.js` if you're curious about how this bot works. All of the code is commented quite thoroughly.
@@ -29,6 +32,23 @@ Have a look through `zachBot.js` if you're curious about how this bot works. All
 
 - `!<help|commands|halp>`
     - Displays some helpful info.
+- `!y <YouTube search query in \"QUOTES\"|link to YouTube video>`
+    - Adds a YouTube video's audio to the YouTube playlist. See `!yp` command details below for more about playlist commands.
+    - If no audio is currently playing, the bot will start autoplaying the video you just added.
+- `!yp <list|next|back|clear>` OR `!yp del <index to delete>` OR `!yp repeat <(optional) none|one|all>`
+    - `!yp list` will list all of the videos in the YouTube playlist and show a `*` next to the video that's currently playing.
+    - `!yp next` will skip forwards to the next video in the YouTube playlist, if one exists.
+    - `!yp back` will skip backwards to the previous video in the YouTube playlist, if one exists.
+    - `!yp clear` will clear the YouTube playlist and stop any currently-playing video.
+    - `!yp del <index to delete>` will delete the specified video from the YouTube playlist.
+        - If a user specified the index of the video that's currently playing, that video will stop. If, then, there's a video next in the playlist, that will start playing automatically.
+    - `!yp repeat` will list the current YouTube playlist repeat mode.
+    - `!yp repeat <none|one|all>` will change the YouTube playlist repeat mode.
+- `!v <pause|resume>` OR `!v vol <(optional) volume value>`
+    - `!v pause` will pause the whatever audio the bot is currently playing in its voice channel (which could be a YouTube video or a `!sbv` voice clip)
+    - `!v resume` will resume whatever audio the bot has paused
+    - `!v vol` will list the bot's current voice channel volume
+    - `!v vol <volume value>` will change the bot's voice channel volume. This value will persist between clips. You can set the volume before the bot has even started playing audio or joined a voice channel.
 - `!e <emoji name>`
     - Displays an emoji image from `./bigEmoji/` corresponding to the argument to this command.
     - See [`./bigEmoji/README.md`](./bigEmoji/README.md) for more info on adding emojis to the bot's repository.

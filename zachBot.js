@@ -25,7 +25,7 @@ var bot = new Client();
 
 // Log in with the `discordToken` auth token stored in `auth.json`
 bot.login(auth.discordToken);
-const youtubeAuthToken = auth.youtubeToken;
+const youtubeAuthToken = auth.youtubeToken || false;
 
 // Don't handle any commands until `isReady` is set to true
 var isReady = false;
@@ -185,11 +185,16 @@ const errorMessages = {
     "quote": "add the '🔠' emoji to some text to get started. say !quote to get a random quote. use !quote delete <id> to delete a quote.",
     "soundStats": "invalid arguments. usage: !soundStats <*|(optional) sound ID> <(optional) person>",
     "y": "invalid arguments. usage: !y <search query in \"QUOTES\"|link to youtube video>",
-    "yp": "invalid arguments. usage: !yp <list|next|back|del|repeat> <(when del is the command) index | (when repeat is the command) none|one|all>",
+    "yp": "invalid arguments. usage: !yp <list|next|back|clear|del|repeat> <(when del is the command) index | (when repeat is the command) none|one|all>",
     "v": "invalid arguments. usage: !v <pause|resume|vol> <(optional) volume value>"
 }
 
 function getYouTubeVideoTitleFromURL(youTubeURL, indexInPlaylist, callback) {
+    if (!youtubeAuthToken) {
+        console.log("You haven't set up a YouTube API key - this will fail silently!");
+        return;
+    }
+    
     var videoId = youTubeURL.substr(-11);
     
     var youtubeService = google.youtube('v3');
@@ -212,6 +217,11 @@ function getYouTubeVideoTitleFromURL(youTubeURL, indexInPlaylist, callback) {
 }
 
 function getFirstYouTubeResult(query, callback) {
+    if (!youtubeAuthToken) {
+        console.log("You haven't set up a YouTube API key - this will fail silently!");
+        return;
+    }
+    
     var youtubeService = google.youtube('v3');
     var parameters = {
         'maxResults': '1',
