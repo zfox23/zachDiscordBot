@@ -158,12 +158,34 @@ bot.on('ready', function (evt) {
     bot.getSpecificSoundUsageDataByAuthor = soundsSQL.prepare("SELECT *, sbRequested + sbvRequested AS totalRequests FROM sounds WHERE soundAuthor = ? ORDER BY totalRequests DESC LIMIT 50;");
     bot.getSpecificSoundUsageDataWithAuthor = soundsSQL.prepare("SELECT * FROM sounds WHERE soundAuthor = ? AND soundName = ?;");
     bot.getTopTenSoundUsageData = soundsSQL.prepare("SELECT *, sbRequested + sbvRequested AS totalRequests FROM sounds ORDER BY totalRequests DESC LIMIT 10;");
+});
 
-    bot.guilds.forEach((channel) => {
-        if (channel.type == "text" && channel.permissionsFor(guild.me).has("READ_MESSAGES")) {
-            channel.fetchMessages({ limit: 50 });
+// This event handler will ensure that, when a user adds/removes a reaction to a
+// non-cached message, the reaction will still be caught by the bot.
+// Snagged from
+// https://github.com/AnIdiotsGuide/discordjs-bot-guide/blob/master/coding-guides/raw-events.md
+// (THANK YOU!)
+bot.on('raw', packet => {
+    // We don't want this to run on unrelated packets
+    if (!['MESSAGE_REACTION_ADD', 'MESSAGE_REACTION_REMOVE'].includes(packet.t)) return;
+    // Grab the channel to check the message from
+    const channel = bot.channels.get(packet.d.channel_id);
+    // There's no need to emit if the message is cached, because the event will fire anyway for that
+    if (channel.messages.has(packet.d.message_id)) return;
+    // Since we have confirmed the message is not cached, let's fetch it
+    channel.fetchMessage(packet.d.message_id).then(message => {
+        // Emojis can have identifiers of name:id format, so we have to account for that case as well
+        const emoji = packet.d.emoji.id ? `${packet.d.emoji.name}:${packet.d.emoji.id}` : packet.d.emoji.name;
+        // This gives us the reaction we need to emit the event properly, in top of the message object
+        const reaction = message.reactions.get(emoji);
+        // Check which type of event it is before emitting
+        if (packet.t === 'MESSAGE_REACTION_ADD') {
+            bot.emit('messageReactionAdd', reaction, bot.users.get(packet.d.user_id));
         }
-    })
+        if (packet.t === 'MESSAGE_REACTION_REMOVE') {
+            bot.emit('messageReactionRemove', reaction, bot.users.get(packet.d.user_id));
+        }
+    });
 });
 
 // If a user says one of the messages on the left,
