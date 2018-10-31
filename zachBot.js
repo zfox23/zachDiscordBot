@@ -36,7 +36,7 @@ var currentVoiceConnection = false;
 // Used when playing media
 var currentStreamDispatcher = false;
 // Used when playing YouTube video
-var youtubeVolume = 1.0;
+var youtubeVolume = 0.3;
 // Populated by the contents of the `bigEmoji` folder
 var availableEmojis = [];
 // Populated by the contents of the `sounds` folder
