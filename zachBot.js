@@ -45,6 +45,21 @@ var availableEmojis = [];
 var soundboardData = { "data": {} };
 // Used for sending status messages
 var statusChannel;
+// Sent to the channel when a user enters an invalid command.
+// key is command, value is error message.
+// The keys in this object are used to enumerate the valid commands
+// when the user issues the help command.
+var errorMessages = {
+    "e": "", // Will be filled in once emoji system is ready
+    "sb": 'invalid arguments. usage: !sb <sound ID> <(optional) person>',
+    "sbv": 'invalid arguments. usage: !sbv <sound ID> <(optional) person>',
+    "leave": "...i'm not in a voice channel",
+    "quote": "add the '🔠' emoji to some text to get started. say !quote to get a random quote. use !quote delete <id> to delete a quote.",
+    "soundStats": "invalid arguments. usage: !soundStats <*|(optional) sound ID> <(optional) person>",
+    "y": "invalid arguments. usage: !y <search query in \"QUOTES\"|link to youtube video>",
+    "yp": "invalid arguments. usage: !yp <list|next|back|clear|del|repeat> <(when del is the command) index | (when repeat is the command) none|one|all>",
+    "v": "invalid arguments. usage: !v <pause|resume|vol> <(optional) volume value>"
+}
 
 // Do something when the bot says it's ready
 bot.on('ready', function (evt) {
@@ -78,6 +93,7 @@ bot.on('ready', function (evt) {
         }
         availableEmojis.push(emojiFiles[i].slice(0, -4));
     }
+    errorMessages["e"] = ('invalid emoji. usage: !e <emoji name>.\navailable emojis:\n' + (availableEmojis.join(", ")));
     emojiSystemReady = true;
     console.log('Emoji system ready.');
     updateReadyStatus();
@@ -195,22 +211,6 @@ const exactMessageHandlers = {
     "ya gotta have your bot!": "ya just gotta!"
 }
 
-// Sent to the channel when a user enters an invalid command.
-// key is command, value is error message.
-// The keys in this object are used to enumerate the valid commands
-// when the user issues the help command.
-const errorMessages = {
-    "e": 'invalid emoji. usage: !e <emoji name>.\navailable emojis:\n' + availableEmojis.join(", "),
-    "sb": 'invalid arguments. usage: !sb <sound ID> <(optional) person>',
-    "sbv": 'invalid arguments. usage: !sbv <sound ID> <(optional) person>',
-    "leave": "...i'm not in a voice channel",
-    "quote": "add the '🔠' emoji to some text to get started. say !quote to get a random quote. use !quote delete <id> to delete a quote.",
-    "soundStats": "invalid arguments. usage: !soundStats <*|(optional) sound ID> <(optional) person>",
-    "y": "invalid arguments. usage: !y <search query in \"QUOTES\"|link to youtube video>",
-    "yp": "invalid arguments. usage: !yp <list|next|back|clear|del|repeat> <(when del is the command) index | (when repeat is the command) none|one|all>",
-    "v": "invalid arguments. usage: !v <pause|resume|vol> <(optional) volume value>"
-}
-
 function getYouTubeVideoTitleFromURL(youTubeURL, indexInPlaylist, callback) {
     if (!youtubeAuthToken) {
         console.log("You haven't set up a YouTube API key - this will fail silently!");
@@ -293,6 +293,7 @@ function handleBackInYouTubePlaylist() {
 
 function handleListYouTubePlaylist(message) {
     var playlistArray = [];
+    var numResponses = 0;
     if (youTubePlaylist.length === 0) {
         message.channel.send("Playlist is empty, boss!");
     } else {
@@ -304,9 +305,10 @@ function handleListYouTubePlaylist(message) {
                     indexString = "🎶 " + index;
                 }
                 playlistArray[index] = (indexString + ". " + title);
+                numResponses++;
                 // This guarantees that the order of the playlist is the order
                 // in which the playlist is displayed in-channel to the user
-                if (playlistArray.length === youTubePlaylist.length) {
+                if (numResponses === youTubePlaylist.length) {
                     message.channel.send(playlistArray.join("\n"));
                 }
             });
