@@ -71,12 +71,16 @@ bot.on('ready', function (evt) {
     // Set to true when we've recorded all available soundboard sounds
     var soundboardSystemReady = false;
     // Call this after setting one of the subsystem's ready status to true
+    var firstReadyUpdateComplete = false;
     var updateReadyStatus = function() {
         // We're ready for commands if all subsystems are ready!
-        if (emojiSystemReady && soundboardSystemReady) {
-            isReady = true;
-            console.log('Bot ready.');
-            statusChannel.send("Bot ready.");
+        isReady = emojiSystemReady && soundboardSystemReady;
+        if (isReady) {
+            if (!firstReadyUpdateComplete) {
+                console.log('Bot ready.');
+                statusChannel.send("Bot ready.");
+            }
+            firstReadyUpdateComplete = true;
         }
     }
     
@@ -86,17 +90,25 @@ bot.on('ready', function (evt) {
     // For every file in the `./bigEmoji` directory,
     // add that filename (minus extension) to our list
     // of available emoji.
-    var emojiFiles = fs.readdirSync("./bigEmoji");
-    for (var i = 0; i < emojiFiles.length; i++) {
-        if (emojiFiles[i] === "README.md") {
-            continue;
+    function refreshEmoji() {
+        console.log('Refreshing emoji system...');
+        emojiSystemReady = false;
+        availableEmojis = [];
+        var emojiFiles = fs.readdirSync("./bigEmoji");
+        for (var i = 0; i < emojiFiles.length; i++) {
+            if (emojiFiles[i] === "README.md") {
+                continue;
+            }
+            availableEmojis.push(emojiFiles[i].slice(0, -4));
         }
-        availableEmojis.push(emojiFiles[i].slice(0, -4));
+        emojiSystemReady = true;
+        updateReadyStatus();
+        console.log('Emoji system ready.');
     }
     errorMessages["e"] = ('invalid emoji. usage: !e <emoji name>.\navailable emojis:\n' + (availableEmojis.join(", ")));
-    emojiSystemReady = true;
-    console.log('Emoji system ready.');
-    updateReadyStatus();
+    var REFRESH_EMOJI_INTERVAL_MS = 3600000;
+    var refreshEmojiInterval = setInterval(refreshEmoji, REFRESH_EMOJI_INTERVAL_MS);
+    refreshEmoji();
     
     // Check if the table "quotes" exists.
     const quotesTable = quotesSQL.prepare("SELECT count(*) FROM sqlite_master WHERE type='table' AND name = 'quotes';").get();
@@ -880,7 +892,7 @@ function QuoteObject(quoteAdder, quoteGuild, quoteChannel, firstMessageObject, e
 var activeQuoteObjects = [];
 bot.on('messageReactionAdd', (reaction, user) => {
     // If the user reacted to a message with the "ABCD" emoji...
-    if (reaction.emoji.name === "🔠") {
+    if (reaction.emoji.name === "🔠" || reaction.emoji.name === "🔡") {
         // Start off this index at -1
         var currentActiveQuoteIndex = -1;
         // If it exists, find the quote object in the activeQuoteObjects array
