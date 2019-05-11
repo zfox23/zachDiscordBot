@@ -4,6 +4,9 @@
   "description": "A really helpful. To me.",
   "main": "zachBot.js",
   "author": "Zach Fox",
+  "scripts": {
+    "update:packages": "node wipe-dependencies.js && rm -rf node_modules && npm update --save-dev && npm update --save"
+  },
   "dependencies": {
     "better-sqlite3": "^5.4.0",
     "bufferutil": "^4.0.1",
