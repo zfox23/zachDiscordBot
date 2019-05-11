@@ -5,18 +5,18 @@
   "main": "zachBot.js",
   "author": "Zach Fox",
   "dependencies": {
-    "better-sqlite3": "^5.0.1",
+    "better-sqlite3": "^5.4.0",
+    "bufferutil": "^4.0.1",
     "discord.js": "^11.4.2",
     "erlpack": "github:hammerandchisel/erlpack",
     "ffmpeg-binaries": "^4.0.0",
-    "googleapis": "^34.0.0",
-    "libsodium-wrappers": "^0.7.3",
-    "moment": "^2.22.2",
-    "node-fetch": "^2.2.0",
-    "node-gyp": "^3.8.0",
-    "node-opus": "^0.3.0",
-    "pako": "^1.0.6",
-    "uws": "^99.0.0",
-    "ytdl-core": "^0.26.3"
+    "googleapis": "^39.2.0",
+    "libsodium-wrappers": "^0.7.4",
+    "moment": "^2.24.0",
+    "node-fetch": "^2.5.0",
+    "node-opus": "^0.3.1",
+    "pako": "^1.0.10",
+    "uws": "^100.0.1",
+    "ytdl-core-discord": "^1.0.3"
   }
 }

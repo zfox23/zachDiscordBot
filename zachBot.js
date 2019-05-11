@@ -12,7 +12,7 @@ const { Client } = require('discord.js');
 const auth = require('./auth.json');
 const fs = require('fs');
 const moment = require('moment');
-const ytdl = require('ytdl-core');
+const ytdl = require('ytdl-core-discord');
 const {google} = require('googleapis');
 const {googleAuth} = require('google-auth-library');
 
@@ -392,6 +392,7 @@ function handleVoiceStream(filePathOrUrl, message) {
                 currentStreamDispatcher = false;
             });
         } else if (youtubeUrlToPlay) {
+            console.log(`Streaming audio from ${youtubeUrlToPlay}...`);
             if (currentStreamDispatcher) {
                 currentStreamDispatcher.end('newAudio');
             }
