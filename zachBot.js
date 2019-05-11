@@ -56,7 +56,7 @@ var errorMessages = {
     "leave": "...i'm not in a voice channel",
     "quote": "add the '🔠' emoji to some text to get started. say !quote to get a random quote. use !quote delete <id> to delete a quote.",
     "soundStats": "invalid arguments. usage: !soundStats <*|(optional) sound ID> <(optional) person>",
-    "y": "invalid arguments. usage: !y <search query in \"QUOTES\"|link to youtube video>",
+    "y": "invalid arguments. usage: !y <search query|link to youtube video>",
     "yp": "invalid arguments. usage: !yp <list|next|back|clear|del|repeat> <(when del is the command) index | (when repeat is the command) none|one|all>",
     "v": "invalid arguments. usage: !v <pause|resume|vol> <(optional) volume value>"
 }
@@ -363,6 +363,34 @@ function deleteIndexFromYouTubePlaylist(message, indexToDelete) {
     });
 }
 
+async function playYouTubeAudio(currentVoiceConnection, url, options) {
+    currentStreamDispatcher = currentVoiceConnection.playOpusStream(await ytdl(url), options);
+    // When the sound has finished playing...
+    currentStreamDispatcher.on("end", reason => {
+        currentStreamDispatcher = false;
+        if (!currentVoiceChannel) {
+            return;
+        }
+        
+        // In all cases we manually call .end(), we don't want
+        // the bot to handle going to the next song.
+        // yt-dl stream ends cause the reason below to be listed.
+        if (reason && reason !== "Stream is not generating quickly enough.") {
+            return;
+        }
+        
+        if (youTubePlaylistRepeatMode === "one") {
+            handleVoiceStream(youTubePlaylist[currentYouTubePlaylistPosition], message);
+        } else if (youTubePlaylistRepeatMode === "all" &&
+            currentYouTubePlaylistPosition === (youTubePlaylist.length - 1)) {
+            currentYouTubePlaylistPosition = -1;
+            handleNextInYouTubePlaylist();
+        } else {
+            handleNextInYouTubePlaylist();
+        }
+    });
+}
+
 function handleVoiceStream(filePathOrUrl, message) {
     var filePath = false;
     var youtubeUrlToPlay = false;
@@ -396,33 +424,8 @@ function handleVoiceStream(filePathOrUrl, message) {
             if (currentStreamDispatcher) {
                 currentStreamDispatcher.end('newAudio');
             }
-            const stream = ytdl(youtubeUrlToPlay, { filter : 'audioonly' });
-            const streamOptions = { volume: youtubeVolume, seek: 0 };
-            currentStreamDispatcher = currentVoiceConnection.playStream(stream, streamOptions);
-            // When the sound has finished playing...
-            currentStreamDispatcher.on("end", reason => {
-                currentStreamDispatcher = false;
-                if (!currentVoiceChannel) {
-                    return;
-                }
-                
-                // In all cases we manually call .end(), we don't want
-                // the bot to handle going to the next song.
-                // yt-dl stream ends cause the reason below to be listed.
-                if (reason && reason !== "Stream is not generating quickly enough.") {
-                    return;
-                }
-                
-                if (youTubePlaylistRepeatMode === "one") {
-                    handleVoiceStream(youTubePlaylist[currentYouTubePlaylistPosition], message);
-                } else if (youTubePlaylistRepeatMode === "all" &&
-                    currentYouTubePlaylistPosition === (youTubePlaylist.length - 1)) {
-                    currentYouTubePlaylistPosition = -1;
-                    handleNextInYouTubePlaylist();
-                } else {
-                    handleNextInYouTubePlaylist();
-                }
-            });
+            var streamOptions = { volume: youtubeVolume, seek: 0 };
+            playYouTubeAudio(currentVoiceConnection, youtubeUrlToPlay, streamOptions);
         } else {
             return console.log("What you want to play is not a file path or a YouTube URL.");
         }
@@ -675,18 +678,16 @@ bot.on('message', function (message) {
                 if (args[0]) {
                     // If the user directly input a YouTube video to play...   
                     if (args[0].indexOf("youtube.com") > -1) {
-                        message.channel.send('Adding `' + args[0] + "` to the yp.");
+                        message.channel.send(`Adding \`${args[0]}\` to the \`yp\`.`);
                         addToYouTubePlaylist(args[0], message);
                     // If the user is searching for a video...   
-                    } else if (args[0].startsWith('"')) {
+                    } else {
                         var searchQuery = args.join(' ');
                         searchQuery = searchQuery.slice(1, -1);
                         getFirstYouTubeResult(searchQuery, function(youtubeUrl, title) {
-                            message.channel.send('Adding "' + title + '" from ' + youtubeUrl + " to the yp.");
+                            message.channel.send(`Adding "${title}" from ${youtubeUrl} to the \`yp\``);
                             addToYouTubePlaylist(youtubeUrl, message);
                         });
-                    } else {
-                        message.channel.send(errorMessages[cmd]);
                     }
                 } else {
                     message.channel.send(errorMessages[cmd]);
@@ -745,7 +746,7 @@ bot.on('message', function (message) {
                         if (currentStreamDispatcher) {
                             currentStreamDispatcher.pause();
                         }
-                    } else if (args[0] === "resume") {
+                    } else if (args[0] === "resume" || args[0] === "play") {
                         if (currentStreamDispatcher) {
                             currentStreamDispatcher.resume();
                         }
