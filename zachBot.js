@@ -367,6 +367,7 @@ async function playYouTubeAudio(currentVoiceConnection, url, options) {
     currentStreamDispatcher = currentVoiceConnection.playOpusStream(await ytdl(url), options);
     // When the sound has finished playing...
     currentStreamDispatcher.on("end", reason => {
+        console.log(`Current Stream Dispatcher - End Event Received with Reason: ${reason}`);
         currentStreamDispatcher = false;
         if (!currentVoiceChannel) {
             return;
