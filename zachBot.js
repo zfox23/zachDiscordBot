@@ -15,10 +15,12 @@ const moment = require('moment');
 const ytdl = require('ytdl-core-discord');
 const {google} = require('googleapis');
 const {googleAuth} = require('google-auth-library');
+const prism = require('prism-media');
 
 const SQLite = require("better-sqlite3");
 const quotesSQL = new SQLite('./quotes/quotes.sqlite');
 const soundsSQL = new SQLite('./sounds/sounds.sqlite');
+const playlistsSQL = new SQLite('./playlists/playlists.sqlite');
 
 // Initialize discord.js Discord Bot
 var bot = new Client();
@@ -57,7 +59,7 @@ var errorMessages = {
     "quote": "add the '🔠' emoji to some text to get started. say !quote to get a random quote. use !quote delete <id> to delete a quote.",
     "soundStats": "invalid arguments. usage: !soundStats <*|(optional) sound ID> <(optional) person>",
     "y": "invalid arguments. usage: !y <search query|link to youtube video>",
-    "yp": "invalid arguments. usage: !yp <list|next|back|clear|del|repeat> <(when del is the command) index | (when repeat is the command) none|one|all>",
+    "yp": "invalid arguments. usage: !yp <list|next|back|clear|del|repeat> <(when del is the command) index | (when repeat is the command) none|one|all> <(when list is the command) (optional) save> <(when list is the command) playlist name>",
     "v": "invalid arguments. usage: !v <pause|resume|vol> <(optional) volume value>"
 }
 
@@ -137,6 +139,27 @@ bot.on('ready', function (evt) {
         soundsSQL.pragma("synchronous = 1");
         soundsSQL.pragma("journal_mode = wal");
     }
+
+    // We have some prepared statements to get and set sounds usage data.
+    bot.incrementSBUsageData = soundsSQL.prepare("UPDATE sounds SET sbRequested = sbRequested + 1 WHERE soundAuthor = @soundAuthor AND soundName = @soundName;");
+    bot.incrementSBVUsageData = soundsSQL.prepare("UPDATE sounds SET sbvRequested = sbvRequested + 1 WHERE soundAuthor = @soundAuthor AND soundName = @soundName;");
+    bot.getSpecificSoundUsageData = soundsSQL.prepare("SELECT * FROM sounds WHERE soundName = ?;");
+    bot.getSpecificSoundUsageDataByAuthor = soundsSQL.prepare("SELECT *, sbRequested + sbvRequested AS totalRequests FROM sounds WHERE soundAuthor = ? ORDER BY totalRequests DESC LIMIT 50;");
+    bot.getSpecificSoundUsageDataWithAuthor = soundsSQL.prepare("SELECT * FROM sounds WHERE soundAuthor = ? AND soundName = ?;");
+    bot.getTopTenSoundUsageData = soundsSQL.prepare("SELECT *, sbRequested + sbvRequested AS totalRequests FROM sounds ORDER BY totalRequests DESC LIMIT 10;");
+    
+    // Check if the table "playlists" exists.
+    const playlistsTable = playlistsSQL.prepare("SELECT count(*) FROM sqlite_master WHERE type='table' AND name = 'playlists';").get();
+    if (!playlistsTable['count(*)']) {
+        // If the table isn't there, create it and setup the database correctly.
+        playlistsSQL.prepare("CREATE TABLE playlists (name TEXT PRIMARY KEY, created DATETIME DEFAULT CURRENT_TIMESTAMP, userWhoAdded TEXT, guild TEXT, channel TEXT, playlistJSON TEXT);").run();
+        // Ensure that the "id" row is always unique and indexed.
+        playlistsSQL.prepare("CREATE UNIQUE INDEX idx_playlists_name ON playlists (name);").run();
+        playlistsSQL.pragma("synchronous = 1");
+        playlistsSQL.pragma("journal_mode = wal");
+    }
+    bot.updatePlaylist = playlistsSQL.prepare("INSERT OR REPLACE INTO playlists (name, userWhoAdded, guild, channel, playlistJSON) VALUES (@name, @userWhoAdded, @guild, @channel, @playlistJSON);");
+    bot.loadPlaylist = playlistsSQL.prepare("SELECT * FROM playlists WHERE guild = @guild AND channel = @channel AND name = @name;");
     
     // For every file in the `./sounds/*` directories,
     // add that filename (minus extension) to our list
@@ -178,14 +201,6 @@ bot.on('ready', function (evt) {
     soundboardSystemReady = true;
     console.log('Soundboard system ready.');
     updateReadyStatus();
-
-    // We have some prepared statements to get and set sounds usage data.
-    bot.incrementSBUsageData = soundsSQL.prepare("UPDATE sounds SET sbRequested = sbRequested + 1 WHERE soundAuthor = @soundAuthor AND soundName = @soundName;");
-    bot.incrementSBVUsageData = soundsSQL.prepare("UPDATE sounds SET sbvRequested = sbvRequested + 1 WHERE soundAuthor = @soundAuthor AND soundName = @soundName;");
-    bot.getSpecificSoundUsageData = soundsSQL.prepare("SELECT * FROM sounds WHERE soundName = ?;");
-    bot.getSpecificSoundUsageDataByAuthor = soundsSQL.prepare("SELECT *, sbRequested + sbvRequested AS totalRequests FROM sounds WHERE soundAuthor = ? ORDER BY totalRequests DESC LIMIT 50;");
-    bot.getSpecificSoundUsageDataWithAuthor = soundsSQL.prepare("SELECT * FROM sounds WHERE soundAuthor = ? AND soundName = ?;");
-    bot.getTopTenSoundUsageData = soundsSQL.prepare("SELECT *, sbRequested + sbvRequested AS totalRequests FROM sounds ORDER BY totalRequests DESC LIMIT 10;");
 });
 
 // This event handler will ensure that, when a user adds/removes a reaction to a
@@ -246,11 +261,11 @@ function getYouTubeVideoTitleFromURL(youTubeURL, indexInPlaylist, callback) {
             return;
         }
         var videoTitle = response.data.items[0].snippet.title;
-        callback(videoTitle, indexInPlaylist);
+        callback(videoTitle, indexInPlaylist, youTubeURL);
     });
 }
 
-function getFirstYouTubeResult(query, callback) {
+function getFirstYouTubeResult(query, callback, errorCallback) {
     if (!youtubeAuthToken) {
         console.log("You haven't set up a YouTube API key - this will fail silently!");
         return;
@@ -270,6 +285,12 @@ function getFirstYouTubeResult(query, callback) {
             console.log('The API returned an error: ' + err);
             return;
         }
+
+        if (response.data.items.length === 0) {
+            errorCallback("No search results returned.");
+            return;
+        }
+
         var videoId = response.data.items[0].id.videoId;
         var fullUrl = "https://www.youtube.com/watch?v=" + videoId;
         var videoTitle = response.data.items[0].snippet.title;
@@ -280,14 +301,6 @@ function getFirstYouTubeResult(query, callback) {
 var youTubePlaylist = [];
 var currentYouTubePlaylistPosition = -1;
 var youTubePlaylistRepeatMode = "none";
-function addToYouTubePlaylist(youtubeURL, message) {
-    youTubePlaylist.push(youtubeURL);
-    
-    if (!currentStreamDispatcher) {
-        currentYouTubePlaylistPosition++;
-        handleVoiceStream(youTubePlaylist[currentYouTubePlaylistPosition], message);
-    }
-}
 
 function handleNextInYouTubePlaylist() {
     if (youTubePlaylist.length > currentYouTubePlaylistPosition + 1) {
@@ -311,12 +324,12 @@ function handleListYouTubePlaylist(message) {
     } else {
         message.channel.send("Here's the current YouTube Playlist:\n");
         for (var i = 0; i < youTubePlaylist.length; i++) {
-            getYouTubeVideoTitleFromURL(youTubePlaylist[i], i, function(title, index) {
+            getYouTubeVideoTitleFromURL(youTubePlaylist[i], i, function(title, index, originalURL) {
                 indexString = index;
                 if (index === currentYouTubePlaylistPosition && currentStreamDispatcher) {
                     indexString = "🎶 " + index;
                 }
-                playlistArray[index] = (indexString + ". " + title);
+                playlistArray[index] = (`${indexString}. ${title} (\`${originalURL}\`)`);
                 numResponses++;
                 // This guarantees that the order of the playlist is the order
                 // in which the playlist is displayed in-channel to the user
@@ -358,35 +371,45 @@ function deleteIndexFromYouTubePlaylist(message, indexToDelete) {
             if (youTubePlaylist[currentYouTubePlaylistPosition]) {
                 // ...play it immediately.
                 handleVoiceStream(youTubePlaylist[currentYouTubePlaylistPosition], message);
+            } else {
+                currentYouTubePlaylistPosition--;
             }
         }
     });
 }
 
 async function playYouTubeAudio(currentVoiceConnection, url, options) {
-    currentStreamDispatcher = currentVoiceConnection.playOpusStream(await ytdl(url), options);
+    console.log(`playYouTubeAudio(): checkpoint 01`);
+    const input = await ytdl(url);
+    console.log(`playYouTubeAudio(): checkpoint 02`);
+    const pcm = input.pipe(new prism.opus.Decoder({ rate: 48000, channels: 2, frameSize: 960 }));
+    console.log(`playYouTubeAudio(): checkpoint 03`);
+
+    currentStreamDispatcher = currentVoiceConnection.playConvertedStream(pcm);
+    console.log(`playYouTubeAudio(): checkpoint 04`);
     // When the sound has finished playing...
     currentStreamDispatcher.on("end", reason => {
         console.log(`Current Stream Dispatcher - End Event Received with Reason: ${reason}`);
+
         currentStreamDispatcher = false;
         if (!currentVoiceChannel) {
             return;
         }
-        
-        // In all cases we manually call .end(), we don't want
-        // the bot to handle going to the next song.
-        // yt-dl stream ends cause the reason below to be listed.
-        if (reason && reason !== "Stream is not generating quickly enough.") {
+
+        if (reason && reason !== "stream") {
             return;
         }
         
         if (youTubePlaylistRepeatMode === "one") {
+            console.log(`Repeating that last video's audio...`);
             handleVoiceStream(youTubePlaylist[currentYouTubePlaylistPosition], message);
         } else if (youTubePlaylistRepeatMode === "all" &&
             currentYouTubePlaylistPosition === (youTubePlaylist.length - 1)) {
+            console.log(`Starting playlist from the beginning...`);
             currentYouTubePlaylistPosition = -1;
             handleNextInYouTubePlaylist();
         } else {
+            console.log(`Calling handleNextInYouTubePlaylist()...`);
             handleNextInYouTubePlaylist();
         }
     });
@@ -421,7 +444,7 @@ function handleVoiceStream(filePathOrUrl, message) {
                 currentStreamDispatcher = false;
             });
         } else if (youtubeUrlToPlay) {
-            console.log(`Streaming audio from ${youtubeUrlToPlay}...`);
+            console.log(`handleVoiceStream -> playAudio -> ${youtubeUrlToPlay}...`);
             if (currentStreamDispatcher) {
                 currentStreamDispatcher.end('newAudio');
             }
@@ -680,14 +703,25 @@ bot.on('message', function (message) {
                     // If the user directly input a YouTube video to play...   
                     if (args[0].indexOf("youtube.com") > -1) {
                         message.channel.send(`Adding \`${args[0]}\` to the \`yp\`.`);
-                        addToYouTubePlaylist(args[0], message);
+                        youTubePlaylist.push(args[0]);
+    
+                        if (!currentStreamDispatcher) {
+                            currentYouTubePlaylistPosition++;
+                            handleVoiceStream(youTubePlaylist[currentYouTubePlaylistPosition], message);
+                        }
                     // If the user is searching for a video...   
                     } else {
                         var searchQuery = args.join(' ');
-                        searchQuery = searchQuery.slice(1, -1);
                         getFirstYouTubeResult(searchQuery, function(youtubeUrl, title) {
                             message.channel.send(`Adding "${title}" from ${youtubeUrl} to the \`yp\``);
-                            addToYouTubePlaylist(youtubeUrl, message);
+                            youTubePlaylist.push(youtubeUrl);
+    
+                            if (!currentStreamDispatcher) {
+                                currentYouTubePlaylistPosition++;
+                                handleVoiceStream(youTubePlaylist[currentYouTubePlaylistPosition], message);
+                            }
+                        }, function() {
+                            message.channel.send(`There were no YouTube results for the query "${searchQuery}"`);
                         });
                     }
                 } else {
@@ -699,10 +733,104 @@ bot.on('message', function (message) {
                     var playlistCommand = args[0];
                     if (playlistCommand === "next") {
                         handleNextInYouTubePlaylist();
-                    } else if (playlistCommand === "back") {
+                    } else if (playlistCommand === "back" || playlistCommand === "prev" || playlistCommand === "previous") {
                         handleBackInYouTubePlaylist();
                     } else if (playlistCommand === "list") {
-                        handleListYouTubePlaylist(message);
+                        if (args[1]) {
+                            if (args[1] === "save") {
+                                if (args[2]) {
+                                    var playlistName = args[2];
+                                    var playlistData = {
+                                        name: playlistName,
+                                        userWhoAdded: message.author.id,
+                                        guild: message.guild.id,
+                                        channel: message.channel.id,
+                                        playlistJSON: JSON.stringify(youTubePlaylist)
+                                    }
+                                    var id = bot.updatePlaylist.run(playlistData).lastInsertRowid;
+                                    message.channel.send("Playlist added to database with ID " + id);
+                                } else {
+                                    message.channel.send(`Please specify a playlist name: \`yp list save <playlist name>\``);
+                                }
+                            } else if (args[1] === "load") {
+                                if (args[2]) {
+                                    var playlistName = args[2];
+                                    var requestData = {
+                                        name: playlistName,
+                                        guild: message.guild.id,
+                                        channel: message.channel.id
+                                    }
+                                    var results = bot.loadPlaylist.get(requestData);
+                                    if (results) {
+                                        var playlistJSON = JSON.parse(results.playlistJSON);
+
+                                        if (playlistJSON.length === 0) {
+                                            message.channel.send(`That playlist didn't have any songs in it! Silly.`);
+                                            return;
+                                        }
+
+                                        for (var i = 0; i < playlistJSON.length; i++) {
+                                            youTubePlaylist.push(playlistJSON[i]);
+                                        }
+                                        message.channel.send(`Playlist loaded.`);
+    
+                                        if (!currentStreamDispatcher) {
+                                            currentYouTubePlaylistPosition++;
+                                            handleVoiceStream(youTubePlaylist[currentYouTubePlaylistPosition], message);
+                                        }
+                                    } else {
+                                        message.channel.send(`I couldn't find a playlist named "${playlistName}" in my database.`);
+                                    }
+                                } else {
+                                    message.channel.send(`Please specify a playlist name: \`yp list load <playlist name>\``);
+                                }
+                            } else if (args[1] === "show" || args[1] === "display") {
+                                if (args[2]) {
+                                    var playlistName = args[2];
+                                    var requestData = {
+                                        name: playlistName,
+                                        guild: message.guild.id,
+                                        channel: message.channel.id
+                                    }
+                                    var results = bot.loadPlaylist.get(requestData);
+                                    if (results) {
+                                        var playlistJSON = JSON.parse(results.playlistJSON);
+
+                                        if (playlistJSON.length === 0) {
+                                            message.channel.send(`That playlist didn't have any songs in it!`);
+                                            return;
+                                        }
+
+                                        message.channel.send(`Here's the playlist called \`${playlistName}\`:`);
+                                        var playlistArray = [];
+                                        var numResponses = 0;
+                                        for (var i = 0; i < playlistJSON.length; i++) {
+                                            getYouTubeVideoTitleFromURL(playlistJSON[i], i, function(title, index, originalURL) {
+                                                indexString = index;
+                                                if (youTubePlaylist[currentYouTubePlaylistPosition] === originalURL && currentStreamDispatcher) {
+                                                    indexString = "🎶 " + index;
+                                                }
+                                                playlistArray[index] = (`${indexString}. ${title} (\`${originalURL}\`)`);
+                                                numResponses++;
+                                                // This guarantees that the order of the playlist is the order
+                                                // in which the playlist is displayed in-channel to the user
+                                                if (numResponses === playlistJSON.length) {
+                                                    message.channel.send(playlistArray.join("\n"));
+                                                }
+                                            });
+                                        }
+                                    } else {
+                                        message.channel.send(`I couldn't find a playlist named "${playlistName}" in my database.`);
+                                    }
+                                } else {
+                                    message.channel.send(`Please specify a playlist name: \`yp list show <playlist name>\``);
+                                }
+                            } else {
+                                message.channel.send(errorMessages[cmd]);
+                            }
+                        } else {
+                            handleListYouTubePlaylist(message);
+                        }
                     } else if (playlistCommand === "clear") {
                         handleClearYouTubePlaylist(message);
                     } else if (playlistCommand === "del" || playlistCommand === "delete") {
@@ -729,6 +857,8 @@ bot.on('message', function (message) {
                 handleNextInYouTubePlaylist();
             break;
             case 'back':
+            case 'prev':
+            case 'previous':
                 handleBackInYouTubePlaylist();
             break;
             case 'pause':
