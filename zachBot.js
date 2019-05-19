@@ -59,7 +59,7 @@ var errorMessages = {
     "quote": "add the '🔠' emoji to some text to get started. say !quote to get a random quote. use !quote delete <id> to delete a quote.",
     "soundStats": "invalid arguments. usage: !soundStats <*|(optional) sound ID> <(optional) person>",
     "y": "invalid arguments. usage: !y <search query|link to youtube video>",
-    "yp": "invalid arguments. usage: !yp <list|next|back|clear|del|repeat> <(when del is the command) index | (when repeat is the command) none|one|all> <(when list is the command) (optional) save> <(when list is the command) playlist name>",
+    "yp": "invalid arguments. usage: !yp <list|next|back|clear|del|repeat> <(when del is the command) index | (when repeat is the command) none|one|all | (when list is the command) (optional) save|load|import> <(when list is the command) playlist name | (when list is the command) playlist URL> <(when importing a playlist from URL) playlist name>",
     "v": "invalid arguments. usage: !v <pause|resume|vol> <(optional) volume value>"
 }
 
