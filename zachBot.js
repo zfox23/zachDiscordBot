@@ -106,8 +106,8 @@ bot.on('ready', function (evt) {
         emojiSystemReady = true;
         updateReadyStatus();
         console.log('Emoji system ready.');
+        errorMessages["e"] = ('invalid emoji. usage: !e <emoji name>.\navailable emojis:\n' + (availableEmojis.join(", ")));
     }
-    errorMessages["e"] = ('invalid emoji. usage: !e <emoji name>.\navailable emojis:\n' + (availableEmojis.join(", ")));
     var REFRESH_EMOJI_INTERVAL_MS = 3600000;
     var refreshEmojiInterval = setInterval(refreshEmoji, REFRESH_EMOJI_INTERVAL_MS);
     refreshEmoji();
@@ -359,23 +359,21 @@ function deleteIndexFromYouTubePlaylist(message, indexToDelete) {
         return;
     }
     
-    getYouTubeVideoTitleFromURL(youTubePlaylist[indexToDelete], indexToDelete, function(title, index) {
-        youTubePlaylist.splice(indexToDelete, 1);
-        message.channel.send(index + ". " + title + ' deleted from playlist.');
-        
-        // If a user just deleted the song they're currently listening to,
-        // stop the current song.
-        if (indexToDelete === currentYouTubePlaylistPosition && currentStreamDispatcher) {
-            currentStreamDispatcher.end('playlistIndexDeleted');
-            // If the next song exists in the playlist...
-            if (youTubePlaylist[currentYouTubePlaylistPosition]) {
-                // ...play it immediately.
-                handleVoiceStream(youTubePlaylist[currentYouTubePlaylistPosition], message);
-            } else {
-                currentYouTubePlaylistPosition--;
-            }
+    youTubePlaylist.splice(indexToDelete, 1);
+    message.channel.send(index + ". " + youTubePlaylist[indexToDelete] + ' deleted from playlist.');
+    
+    // If a user just deleted the song they're currently listening to,
+    // stop the current song.
+    if (indexToDelete === currentYouTubePlaylistPosition && currentStreamDispatcher) {
+        currentStreamDispatcher.end('playlistIndexDeleted');
+        // If the next song exists in the playlist...
+        if (youTubePlaylist[currentYouTubePlaylistPosition]) {
+            // ...play it immediately.
+            handleVoiceStream(youTubePlaylist[currentYouTubePlaylistPosition], message);
+        } else {
+            currentYouTubePlaylistPosition--;
         }
-    });
+    }
 }
 
 async function playYouTubeAudio(currentVoiceConnection, url, options) {
@@ -1026,6 +1024,11 @@ var activeQuoteObjects = [];
 bot.on('messageReactionAdd', (reaction, user) => {
     // If the user reacted to a message with the "ABCD" emoji...
     if (reaction.emoji.name === "🔠" || reaction.emoji.name === "🔡") {
+        if (!reaction.content || reaction.content.length <= 0) {
+            reaction.message.channel.send(`<@${user.id}>: I can't save messages that don't contain any text, so the message you just tagged won't be included in your quote.`);
+            return;
+        }
+
         // Start off this index at -1
         var currentActiveQuoteIndex = -1;
         // If it exists, find the quote object in the activeQuoteObjects array
