@@ -1024,7 +1024,7 @@ var activeQuoteObjects = [];
 bot.on('messageReactionAdd', (reaction, user) => {
     // If the user reacted to a message with the "ABCD" emoji...
     if (reaction.emoji.name === "🔠" || reaction.emoji.name === "🔡") {
-        if (!reaction.content || reaction.content.length <= 0) {
+        if (!reaction.message.content || reaction.message.content.length <= 0) {
             reaction.message.channel.send(`<@${user.id}>: I can't save messages that don't contain any text, so the message you just tagged won't be included in your quote.`);
             return;
         }
