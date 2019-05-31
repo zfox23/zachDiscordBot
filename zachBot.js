@@ -63,51 +63,55 @@ var errorMessages = {
     "v": "invalid arguments. usage: !v <pause|resume|vol> <(optional) volume value>"
 }
 
+    
+// Set to true when we've recorded all available emoji
+var emojiSystemReady = false;
+// Set to true when we've recorded all available soundboard sounds
+var soundboardSystemReady = false;
+// Call this after setting one of the subsystem's ready status to true
+var firstReadyUpdateComplete = false;
+var updateReadyStatus = function() {
+    // We're ready for commands if all subsystems are ready!
+    isReady = emojiSystemReady && soundboardSystemReady;
+    if (isReady) {
+        if (!firstReadyUpdateComplete) {
+            console.log('Bot ready.');
+            statusChannel.send("Bot ready.");
+        }
+        firstReadyUpdateComplete = true;
+    }
+}
+
+    
+// For every file in the `./bigEmoji` directory,
+// add that filename (minus extension) to our list
+// of available emoji.
+function refreshEmoji() {
+    console.log('Refreshing emoji system...');
+    emojiSystemReady = false;
+    availableEmojis = [];
+    var emojiFiles = fs.readdirSync("./bigEmoji");
+    for (var i = 0; i < emojiFiles.length; i++) {
+        if (emojiFiles[i] === "README.md") {
+            continue;
+        }
+        availableEmojis.push(emojiFiles[i].slice(0, -4));
+    }
+    emojiSystemReady = true;
+    updateReadyStatus();
+    console.log('Emoji system ready.');
+    errorMessages["e"] = ('invalid emoji. usage: !e <emoji name>.\navailable emojis:\n' + (availableEmojis.join(", ")));
+}
+
+
 // Do something when the bot says it's ready
 bot.on('ready', function (evt) {
     // Set up the channel where we'll send status messages
     statusChannel = bot.channels.find(ch => ch.name === 'bot-test-zone');
     
-    // Set to true when we've recorded all available emoji
-    var emojiSystemReady = false;
-    // Set to true when we've recorded all available soundboard sounds
-    var soundboardSystemReady = false;
-    // Call this after setting one of the subsystem's ready status to true
-    var firstReadyUpdateComplete = false;
-    var updateReadyStatus = function() {
-        // We're ready for commands if all subsystems are ready!
-        isReady = emojiSystemReady && soundboardSystemReady;
-        if (isReady) {
-            if (!firstReadyUpdateComplete) {
-                console.log('Bot ready.');
-                statusChannel.send("Bot ready.");
-            }
-            firstReadyUpdateComplete = true;
-        }
-    }
-    
     // Log that we're online
     console.log('Bot online.');
-    
-    // For every file in the `./bigEmoji` directory,
-    // add that filename (minus extension) to our list
-    // of available emoji.
-    function refreshEmoji() {
-        console.log('Refreshing emoji system...');
-        emojiSystemReady = false;
-        availableEmojis = [];
-        var emojiFiles = fs.readdirSync("./bigEmoji");
-        for (var i = 0; i < emojiFiles.length; i++) {
-            if (emojiFiles[i] === "README.md") {
-                continue;
-            }
-            availableEmojis.push(emojiFiles[i].slice(0, -4));
-        }
-        emojiSystemReady = true;
-        updateReadyStatus();
-        console.log('Emoji system ready.');
-        errorMessages["e"] = ('invalid emoji. usage: !e <emoji name>.\navailable emojis:\n' + (availableEmojis.join(", ")));
-    }
+
     var REFRESH_EMOJI_INTERVAL_MS = 3600000;
     var refreshEmojiInterval = setInterval(refreshEmoji, REFRESH_EMOJI_INTERVAL_MS);
     refreshEmoji();
@@ -523,7 +527,10 @@ bot.on('message', function (message) {
             case 'e':
                 var emojiName = args[0];
                 
-                if (emojiName && availableEmojis.indexOf(emojiName) > -1) {
+                if (emojiName === "refresh") {
+                    refreshEmoji();
+                    message.channel.send("Refreshing emoji system...Did you add something good?");
+                } else if (emojiName && availableEmojis.indexOf(emojiName) > -1) {
                     message.channel.send({
                         file: "./bigEmoji/" + emojiName + ".png"
                     });
