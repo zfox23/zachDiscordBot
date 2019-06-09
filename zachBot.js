@@ -40,7 +40,7 @@ var currentStreamDispatcher = false;
 // Used when playing YouTube video
 var youtubeVolume = 0.3;
 // Populated by the contents of the `bigEmoji` folder
-var availableEmojis = [];
+var availableEmojis = {};
 // Populated by the contents of the `sounds` folder
 // Organized like:
 // `sounds/<name of person who said sound>/<soundID>.mp3`
@@ -89,18 +89,18 @@ var updateReadyStatus = function() {
 function refreshEmoji() {
     console.log('Refreshing emoji system...');
     emojiSystemReady = false;
-    availableEmojis = [];
+    availableEmojis = {};
     var emojiFiles = fs.readdirSync("./bigEmoji");
     for (var i = 0; i < emojiFiles.length; i++) {
         if (emojiFiles[i] === "README.md") {
             continue;
         }
-        availableEmojis.push(emojiFiles[i].slice(0, -4));
+        availableEmojis[emojiFiles[i].slice(0, -4)] = emojiFiles[i];
     }
     emojiSystemReady = true;
+    errorMessages["e"] = ('invalid emoji. usage: !e <emoji name>.\navailable emojis:\n' + (Object.keys(availableEmojis).join(", ")));
     updateReadyStatus();
     console.log('Emoji system ready.');
-    errorMessages["e"] = ('invalid emoji. usage: !e <emoji name>.\navailable emojis:\n' + (availableEmojis.join(", ")));
 }
 
 
@@ -514,9 +514,9 @@ bot.on('message', function (message) {
 		// If the "command" is actually an emoji, display the emoji instead of parsing the command.
 		// This would seem like a bug if you named one of your emojis the same as one of the commands,
 		// but I don't expect that to happen. That'd be weird.
-		if (availableEmojis.indexOf(cmd) > -1) {
+		if (availableEmojis[cmd]) {
 			message.channel.send({
-				file: "./bigEmoji/" + availableEmojis[availableEmojis.indexOf(cmd)] + ".png"
+				file: "./bigEmoji/" + availableEmojis[cmd]
 			});
 			return;
 		}
@@ -530,9 +530,9 @@ bot.on('message', function (message) {
                 if (emojiName === "refresh") {
                     refreshEmoji();
                     message.channel.send("Refreshing emoji system...Did you add something good?");
-                } else if (emojiName && availableEmojis.indexOf(emojiName) > -1) {
+                } else if (emojiName && availableEmojis[emojiName]) {
                     message.channel.send({
-                        file: "./bigEmoji/" + emojiName + ".png"
+                        file: "./bigEmoji/" + availableEmojis[emojiName]
                     });
                 } else {
                     message.channel.send(errorMessages[cmd]);
