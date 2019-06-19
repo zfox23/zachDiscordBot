@@ -239,7 +239,8 @@ bot.on('raw', packet => {
 // the bot will respond with the message on the right
 const exactMessageHandlers = {
     "cool cool cool": "cool cool cool cool cool cool",
-    "ya gotta have your bot!": "ya just gotta!"
+    "ya gotta have your bot!": "ya just gotta!",
+    "rad": "brad"
 }
 
 function getYouTubeVideoTitleFromURL(youTubeURL, indexInPlaylist, callback) {
@@ -1002,7 +1003,10 @@ bot.on('message', function (message) {
             "yo": greetings,
             "hey": greetings,
             "hi": greetings,
-            "bye": ["no"]
+            "sic 'em": ["http://gph.is/XHUbrW"],
+            "trevor is causing me undue stress": ["i know, right? just ignore him, it'll all be okay. i would never retaliate against him but i will say that i do understand where you're coming from. this situation isn't worth your time or energy. go have some water, eat some food. this conversation will all blow over soon and everyone involved will forget about it within the next few hours. i love you"],
+            "bye": ["no"],
+            "rude": ["i'm so sorry D:", "it'll never happen again", "i'm just a robot with no sense of morality, please!!! :sob:"]
         }
         
         var lowerCaseMessage = message.content.toLowerCase();
