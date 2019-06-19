@@ -488,12 +488,49 @@ function handleVoiceStream(filePathOrUrl, message) {
     }
 }
 
+var lastThreeMessages = {};
+function handleThreeMessages(message) {
+    if (!lastThreeMessages[message.channel.id]) {
+        lastThreeMessages[message.channel.id] = {
+            "counter": 0,
+            "lastMessage": "",
+            "lastTwoAuthors": []
+        };
+    }
+
+    if (lastThreeMessages[message.channel.id].counter === 2 &&
+        message.content.normalize("NFC") === lastThreeMessages[message.channel.id].lastMessage.normalize("NFC") &&
+        lastThreeMessages[message.channel.id].lastTwoAuthors.indexOf(message.author.id) === -1) {
+
+        lastThreeMessages[message.channel.id].counter = 0;
+        lastThreeMessages[message.channel.id].lastTwoAuthors = [];
+        lastThreeMessages[message.channel.id].lastMessage = "";
+
+        if (message.content.length > 0) {
+            message.channel.send(message.content);
+        }
+    } else if (message.content.normalize("NFC") === lastThreeMessages[message.channel.id].lastMessage.normalize("NFC") && 
+        lastThreeMessages[message.channel.id].lastTwoAuthors.indexOf(message.author.id) === -1 &&
+        message.author.id !== "500452185314820107") {
+        
+        lastThreeMessages[message.channel.id].counter++;
+    } else {
+        lastThreeMessages[message.channel.id].counter = 0;
+    }
+
+    lastThreeMessages[message.channel.id].lastTwoAuthors.unshift(message.author.id);
+    lastThreeMessages[message.channel.id].lastTwoAuthors = lastThreeMessages[message.channel.id].lastTwoAuthors.slice(0, 2);
+    lastThreeMessages[message.channel.id].lastMessage = message.content.normalize("NFC");
+}
+
 // Handle all incoming messages
 bot.on('message', function (message) {
     // Don't do anything if we're not ready yet
     if (!isReady) {
         return;
     }
+
+    handleThreeMessages(message);
     
     // A little easter egg :) UB3R-B0T responds to "cool" with "cool cool cool".
     // If a user tries saying "cool cool cool" (and not UB3R-B0T), the bot will get mad :D
