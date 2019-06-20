@@ -552,9 +552,9 @@ bot.on('message', function (message) {
 		// If the "command" is actually an emoji, display the emoji instead of parsing the command.
 		// This would seem like a bug if you named one of your emojis the same as one of the commands,
 		// but I don't expect that to happen. That'd be weird.
-		if (availableEmojis[cmd]) {
+		if (availableEmojis[cmd.toLowerCase()]) {
 			message.channel.send({
-				file: "./bigEmoji/" + availableEmojis[cmd]
+				file: "./bigEmoji/" + availableEmojis[cmd.toLowerCase()]
 			});
 			return;
 		}
@@ -568,9 +568,9 @@ bot.on('message', function (message) {
                 if (emojiName === "refresh") {
                     refreshEmoji();
                     message.channel.send("Refreshing emoji system...Did you add something good?");
-                } else if (emojiName && availableEmojis[emojiName]) {
+                } else if (emojiName && availableEmojis[emojiName.toLowerCase()]) {
                     message.channel.send({
-                        file: "./bigEmoji/" + availableEmojis[emojiName]
+                        file: "./bigEmoji/" + availableEmojis[emojiName.toLowerCase()]
                     });
                 } else {
                     message.channel.send(errorMessages[cmd]);
