@@ -577,7 +577,19 @@ function sendRandomQuote(guildID, channelID, prependWithHeader) {
 
 var currentQuoteIntervals = [];
 const MS_PER_SEC = 1000;
+const MIN_INTERVAL_S = 60;
+const QUOTE_INTERVAL_ERRORS = [
+    "i really hate that you just tried to set an interval with that short of a delay.",
+    "i almost feel like you're trying to sabotage me. try a longer delay",
+    "are you serious? come on. that's too short of a delay",
+    "i can tell, you're trying to get me in trouble with the discord rate limiter. try a longer delay"
+];
 function startQuoteInterval(author, guild, channel, intervalS, isNewInterval, message) {
+    if (isNaN(parseInt(intervalS)) || parseInt(intervalS) < MIN_INTERVAL_S) {
+        bot.channels.get(channel).send(QUOTE_INTERVAL_ERRORS[Math.floor(Math.random() * QUOTE_INTERVAL_ERRORS.length)]);
+        return;
+    }
+
     currentQuoteIntervals.push({
         "channelID": channel,
         "interval": setInterval(sendRandomQuote, intervalS * MS_PER_SEC, guild, channel, false)
