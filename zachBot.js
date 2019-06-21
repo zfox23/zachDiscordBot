@@ -19,6 +19,7 @@ const prism = require('prism-media');
 
 const SQLite = require("better-sqlite3");
 const quotesSQL = new SQLite('./quotes/quotes.sqlite');
+const quoteIntervalsSQL = new SQLite('./quotes/quoteIntervals.sqlite');
 const soundsSQL = new SQLite('./sounds/sounds.sqlite');
 const playlistsSQL = new SQLite('./playlists/playlists.sqlite');
 
@@ -56,7 +57,7 @@ var errorMessages = {
     "sb": 'invalid arguments. usage: !sb <sound ID> <(optional) person>',
     "sbv": 'invalid arguments. usage: !sbv <sound ID> <(optional) person>',
     "leave": "...i'm not in a voice channel",
-    "quote": "add the '🔠' emoji to some text to get started. say !quote to get a random quote. use !quote delete <id> to delete a quote.",
+    "quote": "add the '🔠' emoji to some text to get started.\nsay !quote to get a random quote.\nuse !quote delete <id> to delete a quote.\nuse !quote interval <time in seconds> to have the bot dispense a quote every <seconds> seconds.",
     "soundStats": "invalid arguments. usage: !soundStats <*|(optional) sound ID> <(optional) person>",
     "y": "invalid arguments. usage: !y <search query|link to youtube video>",
     "yp": "invalid arguments. usage: !yp <list|next|back|clear|del|repeat> <(when del is the command) index | (when repeat is the command) none|one|all | (when list is the command) (optional) save|load|import> <(when list is the command) playlist name | (when list is the command) playlist URL> <(when importing a playlist from URL) playlist name>",
@@ -104,6 +105,21 @@ function refreshEmoji() {
 }
 
 
+function startAllQuoteIntervals() {
+    var allChannels = bot.channels;
+
+    allChannels.tap(function(value, key, map) {
+        var result = bot.getQuoteIntervalsForChannel.all(key);
+        if (result && result.length > 0) {
+            for (var i = 0; i < result.length; i++) {
+                console.log(`Starting quote interval from database with ID ${result[i].id}`);
+                startQuoteInterval(result[i].userWhoAdded, result[i].guild, result[i].channel, result[i].intervalS, false);
+            }
+        }
+    });
+}
+
+
 // Do something when the bot says it's ready
 bot.on('ready', function (evt) {
     // Set up the channel where we'll send status messages
@@ -132,6 +148,24 @@ bot.on('ready', function (evt) {
     bot.getRandomQuote = quotesSQL.prepare("SELECT * FROM quotes WHERE guild = ? AND channel = ? ORDER BY random() LIMIT 1;");
     bot.setQuote = quotesSQL.prepare("INSERT OR REPLACE INTO quotes (userWhoAdded, guild, channel, quote) VALUES (@userWhoAdded, @guild, @channel, @quote);");
     bot.deleteQuote = quotesSQL.prepare("DELETE FROM quotes WHERE guild = ? AND channel = ? AND id = ?;");
+    
+    // Check if the table "quoteIntervals" exists.
+    const quoteIntervalsTable = quoteIntervalsSQL.prepare("SELECT count(*) FROM sqlite_master WHERE type='table' AND name = 'quoteIntervals';").get();
+    if (!quoteIntervalsTable['count(*)']) {
+        // If the table isn't there, create it and setup the database correctly.
+        quoteIntervalsSQL.prepare("CREATE TABLE quoteIntervals (id INTEGER PRIMARY KEY, created DATETIME DEFAULT CURRENT_TIMESTAMP, userWhoAdded TEXT, guild TEXT, channel TEXT, intervalS INTEGER);").run();
+        // Ensure that the "id" row is always unique and indexed.
+        quoteIntervalsSQL.prepare("CREATE UNIQUE INDEX idx_quoteIntervals_id ON quoteIntervals (id);").run();
+        quoteIntervalsSQL.pragma("synchronous = 1");
+        quoteIntervalsSQL.pragma("journal_mode = wal");
+    }
+
+    // We have some prepared statements to get, set, and delete the quoteIntervals data.
+    bot.getQuoteIntervalsForChannel = quoteIntervalsSQL.prepare("SELECT * FROM quoteIntervals WHERE channel = ?;");
+    bot.setQuoteInterval = quoteIntervalsSQL.prepare("INSERT INTO quoteIntervals (userWhoAdded, guild, channel, intervalS) VALUES (@userWhoAdded, @guild, @channel, @intervalS);");
+    bot.deleteQuoteInterval = quoteIntervalsSQL.prepare("DELETE FROM quoteIntervals WHERE guild = ? AND channel = ? AND id = ?;");
+
+    startAllQuoteIntervals();
     
     // Check if the table "sounds" exists.
     const soundsTable = soundsSQL.prepare("SELECT count(*) FROM sqlite_master WHERE type='table' AND name = 'sounds';").get();
@@ -521,6 +555,45 @@ function handleThreeMessages(message) {
     lastThreeMessages[message.channel.id].lastTwoAuthors.unshift(message.author.id);
     lastThreeMessages[message.channel.id].lastTwoAuthors = lastThreeMessages[message.channel.id].lastTwoAuthors.slice(0, 2);
     lastThreeMessages[message.channel.id].lastMessage = message.content.normalize("NFC");
+}
+
+const QUOTE_INTERVAL_HEADERS = [
+    "quotebot here with a funny quote:\n",
+    "giving you random quotes at some interval is my honor:\n",
+    "i hope you like this quote as much as i enjoyed retrieving it:\n",
+    "dispensing quote:\n",
+    "unleashing quote:\n"
+];
+function sendRandomQuote(guildID, channelID, prependWithHeader) {
+    var result = bot.getRandomQuote.get(guildID, channelID);
+    if (result) {
+        var messageToSend = `#${result.id} ${result.quote}`;
+        if (prependWithHeader) {
+            messageToSend = QUOTE_INTERVAL_HEADERS[Math.floor(Math.random() * QUOTE_INTERVAL_HEADERS.length)] + messageToSend;
+        }
+        bot.channels.get(channelID).send(messageToSend);
+    }
+}
+
+var currentQuoteIntervals = [];
+const MS_PER_SEC = 1000;
+function startQuoteInterval(author, guild, channel, intervalS, isNewInterval, message) {
+    currentQuoteIntervals.push({
+        "channelID": channel,
+        "interval": setInterval(sendRandomQuote, intervalS * MS_PER_SEC, guild, channel, false)
+    });
+
+    if (isNewInterval) {
+        var quoteIntervalSQLData = {
+            userWhoAdded: author,
+            guild: guild,
+            channel: channel,
+            intervalS: intervalS
+        }
+        var id = bot.setQuoteInterval.run(quoteIntervalSQLData).lastInsertRowid;
+        message.channel.send("Quote Interval added to database with ID " + id);
+        sendRandomQuote(guild, channel);
+    }
 }
 
 // Handle all incoming messages
@@ -985,26 +1058,49 @@ bot.on('message', function (message) {
             // Handles quote database operations
             case 'quote':
                 var messageToSend = false;
-                // There shouldn't be more than one argument.
-                if (args[2]) {
+                // There shouldn't be more than two arguments.
+                if (args[3]) {
                     message.channel.send(errorMessages[cmd]);
                     return;
+                // If there are 3 arguments...
+                } else if (args[2]) {
+                    if (args[0] === "interval" && (args[1] === "del" || args[1] === "delete")) {
+                        for (var i = 0; i < currentQuoteIntervals.length; i++) {
+                            if (currentQuoteIntervals[i].channelID === message.channel.id) {
+                                clearInterval(currentQuoteIntervals[i].interval);
+                            }
+                        }
+
+                        // delete the quoteInterval if possible
+                        var result = bot.deleteQuoteInterval.run(message.guild.id, message.channel.id, args[2]);
+                        
+                        // If the quoteInterval was deleted...
+                        if (result.changes > 0) {
+                            messageToSend = "quote interval with id " + args[2] + " deleted.";
+                        } else {
+                            messageToSend = "quote interval with id " + args[2] + " not found.";
+                        }
+                    } else {
+                        message.channel.send(errorMessages[cmd]);
+                    }
                 // If there are 2 arguments...
                 } else if (args[1]) {
-                    // ...and the argument ISN'T "delete"
-                    if (args[0].toLowerCase() !== "delete") {
+                    if (args[0] === "delete") {
+                        // delete the quote if possible
+                        var result = bot.deleteQuote.run(message.guild.id, message.channel.id, args[1]);
+                        
+                        // If the quote was deleted...
+                        if (result.changes > 0) {
+                            messageToSend = "quote with id " + args[1] + " deleted.";
+                        } else {
+                            messageToSend = "quote with id " + args[1] + " not found.";
+                        }
+                    } else if (args[0] === "interval") {
+                        startQuoteInterval(message.author.id, message.guild.id, message.channel.id, args[1], true, message);
+                        return;
+                    } else {
                         message.channel.send(errorMessages[cmd]);
                         return;
-                    }
-                    
-                    // delete the quote if possible
-                    var result = bot.deleteQuote.run(message.guild.id, message.channel.id, args[1]);
-                    
-                    // If the quote was deleted...
-                    if (result.changes > 0) {
-                        messageToSend = "quote with id " + args[1] + " deleted.";
-                    } else {
-                        messageToSend = "quote with id " + args[1] + " not found.";
                     }
                 // If there's one argument...
                 } else if (args[0]) {
@@ -1018,10 +1114,8 @@ bot.on('message', function (message) {
                 // No arguments...
                 } else {
                     // ...get a random quote from the DB
-                    var result = bot.getRandomQuote.get(message.guild.id, message.channel.id);
-                    if (result) {
-                        messageToSend = "#" + result.id + " " + result.quote;
-                    }
+                    sendRandomQuote(message.guild.id, message.channel.id);
+                    return;
                 }
                 
                 // Send the relevant message to the channel
