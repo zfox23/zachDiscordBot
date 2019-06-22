@@ -578,15 +578,31 @@ function sendRandomQuote(guildID, channelID, prependWithHeader) {
 var currentQuoteIntervals = [];
 const MS_PER_SEC = 1000;
 const MIN_INTERVAL_S = 60;
-const QUOTE_INTERVAL_ERRORS = [
+const MAX_INTERVAL_S = 157700000; // 5 years
+const QUOTE_INTERVAL_ERRORS_TOO_SHORT = [
     "i really hate that you just tried to set an interval with that short of a delay.",
     "i almost feel like you're trying to sabotage me. try a longer delay",
     "are you serious? come on. that's too short of a delay",
     "i can tell, you're trying to get me in trouble with the discord rate limiter. try a longer delay"
 ];
+const QUOTE_INTERVAL_ERRORS_TOO_LONG = [
+    "the last time someone gave me a delay this long, i exploded",
+    "please don't do this to me",
+    "i don't understand numbers that big"
+];
 function startQuoteInterval(author, guild, channel, intervalS, isNewInterval, message) {
-    if (isNaN(parseInt(intervalS)) || parseInt(intervalS) < MIN_INTERVAL_S) {
-        bot.channels.get(channel).send(QUOTE_INTERVAL_ERRORS[Math.floor(Math.random() * QUOTE_INTERVAL_ERRORS.length)]);
+    if (isNaN(parseInt(intervalS))) {
+        bot.channels.get(channel).send("🙄");
+        return;
+    }
+
+    if (parseInt(intervalS) < MIN_INTERVAL_S) {
+        bot.channels.get(channel).send(QUOTE_INTERVAL_ERRORS_TOO_SHORT[Math.floor(Math.random() * QUOTE_INTERVAL_ERRORS_TOO_SHORT.length)]);
+        return;
+    }
+
+    if (parseInt(intervalS) > MAX_INTERVAL_S) {
+        bot.channels.get(channel).send(QUOTE_INTERVAL_ERRORS_TOO_LONG[Math.floor(Math.random() * QUOTE_INTERVAL_ERRORS_TOO_LONG.length)]);
         return;
     }
 
