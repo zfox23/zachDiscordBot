@@ -12,7 +12,7 @@ const { Client } = require('discord.js');
 const auth = require('./auth.json');
 const fs = require('fs');
 const moment = require('moment');
-const ytdl = require('ytdl-core-discord');
+const ytdl = require('ytdl-core');
 const {google} = require('googleapis');
 const {googleAuth} = require('google-auth-library');
 const prism = require('prism-media');
@@ -417,13 +417,11 @@ function deleteIndexFromYouTubePlaylist(message, indexToDelete) {
 
 async function playYouTubeAudio(currentVoiceConnection, url, options) {
     console.log(`playYouTubeAudio(): checkpoint 01`);
-    const input = await ytdl(url);
+    const input = ytdl(url);
     console.log(`playYouTubeAudio(): checkpoint 02`);
-    const pcm = input.pipe(new prism.opus.Decoder({ rate: 48000, channels: 2, frameSize: 960 }));
-    console.log(`playYouTubeAudio(): checkpoint 03`);
 
-    currentStreamDispatcher = currentVoiceConnection.playConvertedStream(pcm);
-    console.log(`playYouTubeAudio(): checkpoint 04`);
+    currentStreamDispatcher = currentVoiceConnection.playStream(input);
+    console.log(`playYouTubeAudio(): checkpoint 03`);
     // When the sound has finished playing...
     currentStreamDispatcher.on("end", reason => {
         console.log(`Current Stream Dispatcher - End Event Received with Reason: ${reason}`);

@@ -10,17 +10,17 @@
   "dependencies": {
     "better-sqlite3": "^5.4.0",
     "bufferutil": "^4.0.1",
-    "discord.js": "^11.4.2",
+    "discord.js": "^11.5.1",
     "erlpack": "github:hammerandchisel/erlpack",
     "ffmpeg": "0.0.4",
     "googleapis": "^39.2.0",
     "libsodium-wrappers": "^0.7.4",
     "moment": "^2.24.0",
-    "node-fetch": "^2.5.0",
-    "node-opus": "^0.3.1",
+    "node-fetch": "^2.6.0",
+    "node-opus": "^0.3.2",
     "pako": "^1.0.10",
     "prism-media": "^1.0.2",
     "uws": "^100.0.1",
-    "ytdl-core-discord": "^1.0.3"
+    "ytdl-core": "^0.29.2"
   }
 }
