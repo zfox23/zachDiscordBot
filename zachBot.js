@@ -61,7 +61,8 @@ var errorMessages = {
     "soundStats": "invalid arguments. usage: !soundStats <*|(optional) sound ID> <(optional) person>",
     "y": "invalid arguments. usage: !y <search query|link to youtube video>",
     "yp": "invalid arguments. usage: !yp <list|next|back|clear|del|repeat> <(when del is the command) index | (when repeat is the command) none|one|all | (when list is the command) (optional) save|load|import> <(when list is the command) playlist name | (when list is the command) playlist URL> <(when importing a playlist from URL) playlist name>",
-    "v": "invalid arguments. usage: !v <pause|resume|vol> <(optional) volume value>"
+    "v": "invalid arguments. usage: !v <pause|resume|vol> <(optional) volume value>",
+    "roleColor": "invalid arguments. usage: !roleColor #<hex representation of a color, no alpha>"
 }
 
     
@@ -1072,6 +1073,39 @@ bot.on('message', function (message) {
                     currentVoiceConnection = false;
                 } else {
                     message.channel.send(errorMessages[cmd]);
+                }
+            break;
+            case 'roleColor':
+                if (args[0]) {
+                    if (args[0].startsWith("#") && args[0].length === 7) {
+                        var hexColor = args[0];
+                        var guildMember = message.member;
+                        var memberRoles = guildMember.roles;
+                        memberRoles.tap(function(value, key, map) {
+                            if (value.name === "@everyone") {
+                                return;
+                            }
+                            value.setColor(hexColor, "User set their color")
+                            .then(updated => {
+                                console.log(`Set color of role named ${value.name} to ${value.color}`);
+                                message.channel.send("Gorgeous.");
+                            })
+                            .catch(console.error);
+                        });
+                    } else {
+                        message.channel.send(errorMessages[cmd]);
+                    }
+                } else {
+                    var guildMember = message.member;
+                    var memberRoles = guildMember.roles;
+                    var messageToSend = "Your role colors:\n";
+                    memberRoles.tap(function(value, key, map) {
+                        if (value.name === "@everyone") {
+                            return;
+                        }
+                        messageToSend += `${value}: ${value.hexColor}\n`;
+                    });
+                    message.channel.send(messageToSend);
                 }
             break;
             // These commands will display the help message
