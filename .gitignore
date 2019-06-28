@@ -9,3 +9,5 @@ sounds/*
 !sounds/README.md
 playlists/*
 !playlists/README.md
+temp/*
+!temp/README.md

@@ -10,12 +10,15 @@
 // Includes
 const { Client } = require('discord.js');
 const auth = require('./auth.json');
+const https = require('https');
 const fs = require('fs');
 const moment = require('moment');
 const ytdl = require('ytdl-core');
 const {google} = require('googleapis');
 const {googleAuth} = require('google-auth-library');
 const prism = require('prism-media');
+const imageMagick = require('imagemagick');
+const ColorScheme = require('color-scheme');
 
 const SQLite = require("better-sqlite3");
 const quotesSQL = new SQLite('./quotes/quotes.sqlite');
@@ -117,6 +120,25 @@ function startAllQuoteIntervals() {
                 startQuoteInterval(result[i].userWhoAdded, result[i].guild, result[i].channel, result[i].intervalS, false);
             }
         }
+    });
+}
+
+
+function getDominantColor(imagePath, callback) {
+    if (!callback) {
+        callback = function () { }
+    }
+
+    var imArgs = [imagePath, '-scale', '1x1\!', '-format', '%[pixel:u]', 'info:-']
+
+    imageMagick.convert(imArgs, function (err, stdout) {
+        if (err) {
+            callback(err);
+        }
+
+        var rgba = stdout.slice(stdout.indexOf('(') + 1, stdout.indexOf(')')).split(',');
+        var hex = require('rgb-hex')(stdout);
+        callback(null, {"rgba": rgba, "hex": hex});
     });
 }
 
@@ -1091,6 +1113,81 @@ bot.on('message', function (message) {
                                 message.channel.send("Gorgeous.");
                             })
                             .catch(console.error);
+                        });
+                    } else if (args[0] === "auto") {
+                        // hex color by default
+                        console.log(`Trying to automatially get the dominant color from ${message.author.avatarURL}...`);
+                        var filename = __dirname + `\\temp\\${Date.now()}.${(message.author.avatarURL).split('.').pop().split('?')[0]}`;
+                        console.log(`Saving profile pic to ${filename}...`);
+                        const file = fs.createWriteStream(filename);
+                        const request = https.get(message.author.avatarURL, function(response) {
+                            response.pipe(file);
+
+                            file.on('finish', function() {
+                                file.close(function() {
+                                    console.log(`Saved profile pic to ${filename}!`);
+                                    console.log(`Trying to get dominant color...`);
+                                    getDominantColor(filename, function(err, outputColorObj) {
+                                        if (err) {
+                                            console.log(`Error when getting dominant color: ${err}`);
+                                            message.channel.send("Yikes, something bad happened on my end. Sorry. Blame Zach.");
+                                            return;
+                                        }
+
+                                        var outputColorHex = outputColorObj.hex;
+
+                                        var outputColorRgba = outputColorObj.rgba;
+                                        var r = parseInt(outputColorRgba[0]);
+                                        var g = parseInt(outputColorRgba[1]);
+                                        var b = parseInt(outputColorRgba[2]);
+                                        var outputColorHue;
+                                        var maxRGB = Math.max(r, g, b);
+                                        var minRGB = Math.min(r, g, b);
+                                        if (maxRGB === r) {
+                                            outputColorHue = 60 * (g - b) / (maxRGB - minRGB);
+                                        } else if (maxRGB === g) {
+                                            outputColorHue = 60 * (2 + (b - r) / (maxRGB - minRGB));
+                                        } else {
+                                            outputColorHue = 60 * (4 + (r - g) / (maxRGB - minRGB));
+                                        }
+                                        outputColorHue = Math.round(outputColorHue);
+                                        if (outputColorHue < 0) {
+                                            outputColorHue += 360;
+                                        }
+                                        console.log(`\`outputColorHue\` is ${outputColorHue}`);
+
+                                        if (!outputColorHue) {
+                                            console.log(`Error when getting dominant color: No \`outputColorHue\`. outputColorObj: ${JSON.stringify(outputColorObj)}`);
+                                            message.channel.send("Yikes, something bad happened on my end. Sorry. Blame Zach, and he'll check the logs.");
+                                            return;
+                                        }
+
+                                        var scheme = new ColorScheme;
+                                        scheme.from_hue(outputColorHue).scheme('contrast');
+                                        var colorSchemeColors = scheme.colors();    
+                                        colorSchemeColors = colorSchemeColors.map(i => '#' + i);                                    
+
+                                        if (outputColorHex.length === 8) {
+                                            outputColorHex = outputColorHex.slice(0, 6);
+                                        }
+                                        outputColorHex = `#${outputColorHex}`;
+        
+                                        var guildMember = message.member;
+                                        var memberRoles = guildMember.roles;
+                                        memberRoles.tap(function(value, key, map) {
+                                            if (value.name === "@everyone") {
+                                                return;
+                                            }
+                                            value.setColor(outputColorHex, `User set their color automatically based on their profile picture.`)
+                                            .then(updated => {
+                                                console.log(`Automatically set color of role named ${value.name} to ${outputColorHex} based on their profile picture: ${message.author.avatarURL}`);
+                                                message.channel.send(`I've selected ${outputColorHex} for you. You might also like one of the following colors:\n${colorSchemeColors.join(', ')}`);
+                                            })
+                                            .catch(console.error);
+                                        });
+                                    });
+                                });
+                            });
                         });
                     } else {
                         message.channel.send(errorMessages[cmd]);
