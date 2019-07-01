@@ -12,6 +12,7 @@ const { Client } = require('discord.js');
 const auth = require('./auth.json');
 const https = require('https');
 const fs = require('fs');
+const path = require('path');
 const moment = require('moment');
 const ytdl = require('ytdl-core');
 const {google} = require('googleapis');
@@ -142,6 +143,19 @@ function getDominantColor(imagePath, callback) {
     });
 }
 
+function deleteTempFiles() {
+    var directory = __dirname + '/temp';
+    var files = fs.readdirSync(directory);
+
+    for (const file of files) {
+        if (file === "README.md" || file.indexOf(".mp3") > -1) {
+            continue;
+        }
+
+        fs.unlinkSync(path.join(directory, file));
+    }
+}
+
 
 // Do something when the bot says it's ready
 bot.on('ready', function (evt) {
@@ -261,6 +275,11 @@ bot.on('ready', function (evt) {
     
     soundboardSystemReady = true;
     console.log('Soundboard system ready.');
+
+    console.log("Clearing temporary file directory...");
+    deleteTempFiles();
+    console.log("Cleared temporary file directory.");
+
     updateReadyStatus();
 });
 
@@ -388,7 +407,7 @@ function handleListYouTubePlaylist(message) {
         for (var i = 0; i < youTubePlaylist.length; i++) {
             getYouTubeVideoTitleFromURL(youTubePlaylist[i], i, function(title, index, originalURL) {
                 indexString = index;
-                if (index === currentYouTubePlaylistPosition && currentStreamDispatcher) {
+                if (index === currentYouTubePlaylistPosition) {
                     indexString = "🎶 " + index;
                 }
                 playlistArray[index] = (`${indexString}. ${title} (\`${originalURL}\`)`);
@@ -427,50 +446,78 @@ function deleteIndexFromYouTubePlaylist(message, indexToDelete) {
     // If a user just deleted the song they're currently listening to,
     // stop the current song.
     if (indexToDelete === currentYouTubePlaylistPosition && currentStreamDispatcher) {
-        currentStreamDispatcher.end('playlistIndexDeleted');
         // If the next song exists in the playlist...
         if (youTubePlaylist[currentYouTubePlaylistPosition]) {
-            // ...play it immediately.
-            handleVoiceStream(youTubePlaylist[currentYouTubePlaylistPosition], message);
+            // ...don't do anything except end the current stream dispatcher (the end
+            // signal handler will handle the rest).
         } else {
             currentYouTubePlaylistPosition--;
         }
+        currentStreamDispatcher.end('playlistIndexDeleted');
     }
 }
 
-async function playYouTubeAudio(currentVoiceConnection, url, options) {
-    console.log(`playYouTubeAudio(): checkpoint 01`);
-    const input = ytdl(url);
-    console.log(`playYouTubeAudio(): checkpoint 02`);
-
-    currentStreamDispatcher = currentVoiceConnection.playStream(input);
-    console.log(`playYouTubeAudio(): checkpoint 03`);
+async function playYouTubeAudio(filePath) {
+    if (currentStreamDispatcher) {
+        currentStreamDispatcher.end('newAudio');
+    }
+    var streamOptions = { volume: youtubeVolume, seek: 0 };
+    var readStream = fs.createReadStream(filePath);
+    currentStreamDispatcher = currentVoiceConnection.playStream(readStream);
+    console.log(`maybeDownloadThenPlayYouTubeAudio(): checkpoint 03`);
     // When the sound has finished playing...
     currentStreamDispatcher.on("end", reason => {
-        console.log(`Current Stream Dispatcher - End Event Received with Reason: ${reason}`);
-
-        currentStreamDispatcher = false;
-        if (!currentVoiceChannel) {
-            return;
-        }
-
-        if (reason && reason !== "stream") {
-            return;
-        }
-        
-        if (youTubePlaylistRepeatMode === "one") {
-            console.log(`Repeating that last video's audio...`);
-            handleVoiceStream(youTubePlaylist[currentYouTubePlaylistPosition], message);
-        } else if (youTubePlaylistRepeatMode === "all" &&
-            currentYouTubePlaylistPosition === (youTubePlaylist.length - 1)) {
-            console.log(`Starting playlist from the beginning...`);
-            currentYouTubePlaylistPosition = -1;
-            handleNextInYouTubePlaylist();
-        } else {
-            console.log(`Calling handleNextInYouTubePlaylist()...`);
-            handleNextInYouTubePlaylist();
-        }
+        console.log(`Current Stream Dispatcher - End Event Received. Waiting a moment before running more code...`);
+        // Nasty hack to get around discord.js v11 issue
+        // See https://www.bountysource.com/issues/44186528-dispatcher-ends-without-a-reason
+        setTimeout(() => {
+            console.log(`Current Stream Dispatcher - End Event Received with Reason: ${reason}`);
+            
+            if (!currentVoiceChannel) {
+                return;
+            }
+    
+            // If the reasons are any of these, we don't want to do anything else.
+            // We do want to continue for the following reasons:
+            // 'playlistIndexDeleted'
+            if (reason && ['newAudio', 'playlistCleared', 'leaving'].indexOf(reason) > -1) {
+                return;
+            }
+            
+            if (youTubePlaylistRepeatMode === "one") {
+                console.log(`Repeating that last video's audio...`);
+                handleVoiceStream(youTubePlaylist[currentYouTubePlaylistPosition], message);
+            } else if (youTubePlaylistRepeatMode === "all" &&
+                currentYouTubePlaylistPosition === (youTubePlaylist.length - 1)) {
+                console.log(`Starting playlist from the beginning...`);
+                currentYouTubePlaylistPosition = -1;
+                handleNextInYouTubePlaylist();
+            } else {
+                console.log(`Calling handleNextInYouTubePlaylist()...`);
+                handleNextInYouTubePlaylist();
+            }
+        }, 500);
     });
+}
+
+async function maybeDownloadThenPlayYouTubeAudio(url, message) {
+    var youTubeVideoID = ytdl.getURLVideoID(url);
+    var filePath = `temp/${youTubeVideoID}.mp3`;
+    if (fs.existsSync(filePath)) {
+        playYouTubeAudio(filePath);
+    } else {
+        message.channel.send("I don't have a copy of this audio in my cache! Gimme a sec to download it...");
+        console.log(`maybeDownloadThenPlayYouTubeAudio(): checkpoint 01`);
+        var input = ytdl(url, {
+            "filter": "audioonly"
+        });
+        console.log(`maybeDownloadThenPlayYouTubeAudio(): checkpoint 02`);
+        input.pipe(fs.createWriteStream(`temp/${youTubeVideoID}.mp3`));
+        input.on("end", () => {
+            message.channel.send("Audio downloaded. Enjoy!");
+            playYouTubeAudio(filePath);
+        });
+    }
 }
 
 function handleVoiceStream(filePathOrUrl, message) {
@@ -498,16 +545,16 @@ function handleVoiceStream(filePathOrUrl, message) {
             // branch to work.
             currentStreamDispatcher = currentVoiceConnection.playFile(filePath);
             // When the sound has finished playing...
-            currentStreamDispatcher.on("end", end => {
-                currentStreamDispatcher = false;
+            currentStreamDispatcher.on("end", () => {
+                // Nasty hack to get around discord.js v11 issue
+                // See https://www.bountysource.com/issues/44186528-dispatcher-ends-without-a-reason
+                setTimeout(() => {
+                    currentStreamDispatcher = false;
+                }, 500);
             });
         } else if (youtubeUrlToPlay) {
             console.log(`handleVoiceStream -> playAudio -> ${youtubeUrlToPlay}...`);
-            if (currentStreamDispatcher) {
-                currentStreamDispatcher.end('newAudio');
-            }
-            var streamOptions = { volume: youtubeVolume, seek: 0 };
-            playYouTubeAudio(currentVoiceConnection, youtubeUrlToPlay, streamOptions);
+            maybeDownloadThenPlayYouTubeAudio(youtubeUrlToPlay, message);
         } else {
             return console.log("What you want to play is not a file path or a YouTube URL.");
         }
@@ -972,7 +1019,7 @@ bot.on('message', function (message) {
                                         for (var i = 0; i < playlistJSON.length; i++) {
                                             getYouTubeVideoTitleFromURL(playlistJSON[i], i, function(title, index, originalURL) {
                                                 indexString = index;
-                                                if (youTubePlaylist[currentYouTubePlaylistPosition] === originalURL && currentStreamDispatcher) {
+                                                if (youTubePlaylist[currentYouTubePlaylistPosition] === originalURL) {
                                                     indexString = "🎶 " + index;
                                                 }
                                                 playlistArray[index] = (`${indexString}. ${title} (\`${originalURL}\`)`);
@@ -1088,7 +1135,6 @@ bot.on('message', function (message) {
                 if (currentVoiceChannel) {
                     if (currentStreamDispatcher) {
                         currentStreamDispatcher.end('leaving');
-                        currentStreamDispatcher = false;
                     }
                     currentVoiceChannel.leave();
                     currentVoiceChannel = false;
@@ -1128,6 +1174,8 @@ bot.on('message', function (message) {
                                     console.log(`Saved profile pic to ${filename}!`);
                                     console.log(`Trying to get dominant color...`);
                                     getDominantColor(filename, function(err, outputColorObj) {
+                                        fs.unlinkSync(filename);
+
                                         if (err) {
                                             console.log(`Error when getting dominant color: ${err}`);
                                             message.channel.send("Yikes, something bad happened on my end. Sorry. Blame Zach.");
