@@ -6,8 +6,7 @@ It's a useful bot. For me. Maybe it's also useful for my friends?
 Perhaps you'll find it useful as a starting point for your own bot.
 
 ## Prerequisites
-1. [NodeJS v8](https://nodejs.org/en/)
-    - NodeJS versions 9+ don't work with the `!sbv` command with `discord.js` v11 - supposedly this is fixed in `discord.js` v12
+1. [NodeJS v10.15.3](https://nodejs.org/en/)
 2. A Discord account
 3. A Discord bot token
     - Use a [guide like this](https://github.com/reactiflux/discord-irc/wiki/Creating-a-discord-bot-&-getting-a-token) if you don't know what this means.
@@ -32,24 +31,25 @@ Have a look through `zachBot.js` if you're curious about how this bot works. All
 
 - `!<help|commands|halp>`
     - Displays some helpful info.
-- `!y <YouTube search query in \"QUOTES\"|link to YouTube video>`
+- `!y <YouTube search query|link to YouTube video>`
     - Adds a YouTube video's audio to the YouTube playlist. See `!yp` command details below for more about playlist commands.
     - If no audio is currently playing, the bot will start autoplaying the video you just added.
-- `!yp <list|next|back|clear>` OR `!yp del <index to delete>` OR `!yp repeat <(optional) none|one|all>`
+- `!yp <list|next|back|clear>` OR `!yp del <index to delete>` OR `!yp repeat <(optional) none|one|all>` OR `!yp list <save|load|show>`
     - `!yp list` will list all of the videos in the YouTube playlist and show a `🎶` next to the video that's currently playing.
-    - `!yp next` will skip forwards to the next video in the YouTube playlist, if one exists.
-    - `!yp back` will skip backwards to the previous video in the YouTube playlist, if one exists.
+    - `!yp list <save|load|show>` will save the current playlist as a named playlist, load the named playlist, and show all of the videos in the playlist, respectively.
+    - `!yp next` (or just `!next`)will skip forwards to the next video in the YouTube playlist, if one exists.
+    - `!yp back` (or just `!back`) will skip backwards to the previous video in the YouTube playlist, if one exists.
     - `!yp clear` will clear the YouTube playlist and stop any currently-playing video.
     - `!yp del <index to delete>` will delete the specified video from the YouTube playlist.
         - If a user specified the index of the video that's currently playing, that video will stop. If, then, there's a video next in the playlist, that will start playing automatically.
     - `!yp repeat` will list the current YouTube playlist repeat mode.
     - `!yp repeat <none|one|all>` will change the YouTube playlist repeat mode.
 - `!v <pause|resume>` OR `!v vol <(optional) volume value>`
-    - `!v pause` will pause the whatever audio the bot is currently playing in its voice channel (which could be a YouTube video or a `!sbv` voice clip)
-    - `!v resume` will resume whatever audio the bot has paused
+    - `!v pause` (or just `!pause`) will pause the whatever audio the bot is currently playing in its voice channel (which could be a YouTube video or a `!sbv` voice clip)
+    - `!v resume` (or just `!resume`) will resume whatever audio the bot has paused
     - `!v vol` will list the bot's current voice channel volume
     - `!v vol <volume value>` will change the bot's voice channel volume. This value will persist between clips. You can set the volume before the bot has even started playing audio or joined a voice channel.
-- `!e <emoji name>`
+- `!e <emoji name>` OR `!<emoji name>`
     - Displays an emoji image from `./bigEmoji/` corresponding to the argument to this command.
     - See [`./bigEmoji/README.md`](./bigEmoji/README.md) for more info on adding emojis to the bot's repository.
     - Example: The bot would respond to `!e hello` with a message containing `./bigEmoji/hello.png`
@@ -71,6 +71,10 @@ Have a look through `zachBot.js` if you're curious about how this bot works. All
 - `!quote` OR `!quote delete <quoteID>`
     - This one is the most complicated.
     - To start adding a quote to the database, react to a message in your channel with the 🔠 emoji. You'll then see further instructions.
-        - When the bot starts up, it will cache the last 50 messages in each channel. `discord.js` automatically caches messages it can read after it starts up. Users can only add cached messages to quotes.
     - You can use `!quote <(optional) quoteID>` to display a random or specified quote from the bot's quote database. A user will only get quotes from the server and channel in which the user invoked this command.
     - You can use `!quote delete <quoteID>` to delete a quote from the bot's quote database. A user can only delete a quote from the DB if they're in the server and channel associated with that quote ID.
+- `!quote interval <# of seconds>` OR `!quote interval del <interval ID>`
+    - Creates or deletes a "quote interval". Quote intervals are timers that, upon expiry, post a random quote from your channel into the text chat.
+- `!roleColor <hex representation of a color, no alpha|auto>`
+    - Sets the color of your current role in your guild.
+    - The `auto` argument will set the color of your role automatically based on the dominant color of your profile picture.
