@@ -505,16 +505,19 @@ async function maybeDownloadThenPlayYouTubeAudio(url, message) {
     var filePath = `temp/${youTubeVideoID}.mp3`;
     if (fs.existsSync(filePath)) {
         playYouTubeAudio(filePath);
-    } else {
-        message.channel.send("I don't have a copy of this audio in my cache! Gimme a sec to download it...");
+    } else { 
+        if (message) {
+            message.channel.send("I don't have a copy of this audio in my cache! Gimme a sec to download it...");
+        }
         console.log(`maybeDownloadThenPlayYouTubeAudio(): checkpoint 01`);
-        var input = ytdl(url, {
-            "filter": "audioonly"
-        });
+        // var input = ytdl(url, { "filter": "audioonly" });
+        var input = ytdl(url);
         console.log(`maybeDownloadThenPlayYouTubeAudio(): checkpoint 02`);
         input.pipe(fs.createWriteStream(`temp/${youTubeVideoID}.mp3`));
         input.on("end", () => {
-            message.channel.send("Audio downloaded. Enjoy!");
+            if (message) {
+                message.channel.send("Audio downloaded. Enjoy!");
+            }
             playYouTubeAudio(filePath);
         });
     }
