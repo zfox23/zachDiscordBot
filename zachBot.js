@@ -135,6 +135,7 @@ function getDominantColor(imagePath, callback) {
     imageMagick.convert(imArgs, function (err, stdout) {
         if (err) {
             callback(err);
+            return;
         }
 
         var rgba = stdout.slice(stdout.indexOf('(') + 1, stdout.indexOf(')')).split(',');
@@ -1166,7 +1167,7 @@ bot.on('message', function (message) {
                     } else if (args[0] === "auto") {
                         // hex color by default
                         console.log(`Trying to automatially get the dominant color from ${message.author.avatarURL}...`);
-                        var filename = __dirname + `\\temp\\${Date.now()}.${(message.author.avatarURL).split('.').pop().split('?')[0]}`;
+                        var filename = `${__dirname}${path.sep}temp${path.sep}${Date.now()}.${(message.author.avatarURL).split('.').pop().split('?')[0]}`;
                         console.log(`Saving profile pic to ${filename}...`);
                         const file = fs.createWriteStream(filename);
                         const request = https.get(message.author.avatarURL, function(response) {
@@ -1359,18 +1360,113 @@ bot.on('message', function (message) {
 });
 
 // Everything below this comment is related to the quote database system.
-// This message is posted right after a new user starts constructing a new quote.
-const quoteContinueMessage = "keep tagging parts of the quote with 🔠 or react to this message with 🔚 to save it.";
 // Each new QuoteObject contains data about the quote that a user is currently constructing
-function QuoteObject(quoteAdder, quoteGuild, quoteChannel, firstMessageObject, endQuoteMessageID) {
-    this.quoteAdder = quoteAdder;
+function QuoteObject(quoteAdderObject, quoteGuild, quoteChannel, firstMessageObject, endQuoteMessageID) {
+    this.quoteAdderObject = quoteAdderObject;
     this.quoteGuild = quoteGuild;
     this.quoteChannel = quoteChannel;
     this.messageObjectsInQuote = [firstMessageObject];
     this.endQuoteMessageID = endQuoteMessageID;
 }
+function formatQuote(quoteObject) {
+    // formattedQuote will contain the return value, which is used, for example, for what we might store in the DB as the final quote.
+    let formattedQuote = false;
+    
+    // For every message in the currentQuoteObject...
+    var messageIDsUsed = [];
+    while (quoteObject.messageObjectsInQuote.length !== messageIDsUsed.length) {
+        // Find the oldest message in the array first...
+        var currentOldestMessageObjectIndex = 0;
+        var currentOldestMessageObject = null;
+        for (var j = 0; j < quoteObject.messageObjectsInQuote.length; j++) {
+            if (messageIDsUsed.includes(quoteObject.messageObjectsInQuote[j].id)) {
+                continue;
+            }
+
+            if (!currentOldestMessageObject || quoteObject.messageObjectsInQuote[j].createdTimestamp < currentOldestMessageObject.createdTimestamp) {
+                currentOldestMessageObjectIndex = j;
+                currentOldestMessageObject = quoteObject.messageObjectsInQuote[currentOldestMessageObjectIndex];
+            }
+        }
+        
+        // Start the formatted quote text string with the date of the oldest message in the quote
+        if (!formattedQuote) {
+            var currentMessageTimestamp_YMD = moment(currentOldestMessageObject.createdTimestamp).format('YYYY-MM-DD')
+            formattedQuote = currentMessageTimestamp_YMD;
+        }
+        
+        // Grab some data about the current-oldest message object in our quoteObject...
+        var currentPartOfQuoteAuthor = currentOldestMessageObject.author.toString();
+        var currentPartOfQuoteTimestamp_formatted = moment(currentOldestMessageObject.createdTimestamp).format('hh:mm:ss');
+        var currentPartOfQuoteContent = currentOldestMessageObject.content;
+        
+        // Add to the formatted quote
+        formattedQuote += "\n" + currentPartOfQuoteAuthor +
+            " [" + currentPartOfQuoteTimestamp_formatted + "]: " + currentPartOfQuoteContent;
+
+        messageIDsUsed.push(currentOldestMessageObject.id);
+    }
+
+    return formattedQuote;
+}
 // This array holds all of the quotes that the bot is currently keeping track of.
 var activeQuoteObjects = [];
+function getQuoteContinueMessage(userID) {
+    let quoteContinueMessage = "keep tagging parts of the quote with 🔠 or react to this message with 🔚 to save it.";
+    quoteContinueMessage = "<@" + userID + ">, " + quoteContinueMessage;
+    return quoteContinueMessage;
+}
+function updateEndQuoteMessage(currentChannel, quoteObject) {
+    // This message is posted right after a new user starts constructing a new quote.
+    let quoteContinueMessage = getQuoteContinueMessage(quoteObject.quoteAdderObject.id);
+
+    // Get the `Message` object associated with the `endQuoteMessageID` associated with the quote to which the user is adding.
+    currentChannel.fetchMessage(quoteObject.endQuoteMessageID)
+    .then(message => {
+        // Edit the "Quote End Message" with a preview of the quote that the user is currently building.
+        message.edit(quoteContinueMessage + "\nHere's a preview of your quote:\n\n" + formatQuote(quoteObject));
+    });
+}
+bot.on('messageReactionRemove', (reaction, user) => {
+    if (reaction.emoji.name === "🔠" || reaction.emoji.name === "🔡") {
+        // Start off this index at -1
+        let currentActiveQuoteIndex = -1;
+        // If it exists, find the quote object in the activeQuoteObjects array
+        // that the user who reacted is currently constructing
+        for (var i = 0; i < activeQuoteObjects.length; i++) {
+            if (activeQuoteObjects[i].quoteAdderObject.toString() === user.toString()) {
+                currentActiveQuoteIndex = i;
+                break;
+            }
+        }
+        
+        if (currentActiveQuoteIndex > -1) {
+            for (var i = 0; i < activeQuoteObjects[currentActiveQuoteIndex].messageObjectsInQuote.length; i++) {
+                if (reaction.message.id === activeQuoteObjects[currentActiveQuoteIndex].messageObjectsInQuote[i].id) {
+                    activeQuoteObjects[currentActiveQuoteIndex].messageObjectsInQuote.splice(i, 1);
+
+                    if (activeQuoteObjects[currentActiveQuoteIndex].messageObjectsInQuote.length === 0) {
+                        // Tell the user they bailed.
+                        reaction.message.channel.fetchMessage(activeQuoteObjects[currentActiveQuoteIndex].endQuoteMessageID)
+                        .then(message => {
+                            // Edit the "Quote End Message" with a preview of the quote that the user is currently building.
+                            message.edit(`<@${user.id}>, you have removed all messages from the quote you were building. Start a new one by reacting to a message with 🔠!`);
+                            console.log(user.toString() + " bailed while adding a new quote.");
+                        });
+
+                        // Remove the current QuoteObject from the activeQuoteObjects array
+                        activeQuoteObjects.splice(currentActiveQuoteIndex, 1);
+                        return;
+                    }
+
+                    // Update the end quote message with the new preview of the quote.
+                    updateEndQuoteMessage(reaction.message.channel, activeQuoteObjects[currentActiveQuoteIndex]);
+                    return;
+                }
+            }
+        }
+    }
+});
 bot.on('messageReactionAdd', (reaction, user) => {
     // If the user reacted to a message with the "ABCD" emoji...
     if (reaction.emoji.name === "🔠" || reaction.emoji.name === "🔡") {
@@ -1380,15 +1476,18 @@ bot.on('messageReactionAdd', (reaction, user) => {
         }
 
         // Start off this index at -1
-        var currentActiveQuoteIndex = -1;
+        let currentActiveQuoteIndex = -1;
         // If it exists, find the quote object in the activeQuoteObjects array
         // that the user who reacted is currently constructing
         for (var i = 0; i < activeQuoteObjects.length; i++) {
-            if (activeQuoteObjects[i].quoteAdder === user.toString()) {
+            if (activeQuoteObjects[i].quoteAdderObject.toString() === user.toString()) {
                 currentActiveQuoteIndex = i;
                 break;
             }
         }
+
+        // This message is posted right after a new user starts constructing a new quote.
+        let quoteContinueMessage = getQuoteContinueMessage(user.id);
         
         if (currentActiveQuoteIndex === -1) {
             // This user is adding a new quote!
@@ -1396,25 +1495,28 @@ bot.on('messageReactionAdd', (reaction, user) => {
             
             // Tell the user how to continue their quote, then push a new QuoteObject
             // to the activeQuoteObjects array to keep track of it
-            reaction.message.channel.send("<@" + user.id + ">, " + quoteContinueMessage)
+            reaction.message.channel.send(quoteContinueMessage)
             .then(message => {
-                activeQuoteObjects.push(new QuoteObject(
-                    user.toString(),
+                currentActiveQuoteIndex = activeQuoteObjects.push(new QuoteObject(
+                    user,
                     reaction.message.guild.id,
                     reaction.message.channel.id,
                     reaction.message,
                     message.id)
-                );
+                ) - 1;
+
+                updateEndQuoteMessage(reaction.message.channel, activeQuoteObjects[currentActiveQuoteIndex]);
             });
         } else {
             // This user is updating an existing quote!
-            console.log(user.toString() + " is updating an existing quote with internal index " + i + "...");
-            // Add the message that they reacted to to the relevant QuoteObject in activeQuoteObjects
-            activeQuoteObjects[i].messageObjectsInQuote.push(reaction.message);
+            console.log(user.toString() + " is updating an existing quote with internal index " + currentActiveQuoteIndex + "...");
+            // Add the message that they reacted to to the relevant `QuoteObject` in `activeQuoteObjects`
+            activeQuoteObjects[currentActiveQuoteIndex].messageObjectsInQuote.push(reaction.message);
+            updateEndQuoteMessage(reaction.message.channel, activeQuoteObjects[currentActiveQuoteIndex]);
         }
     } else if (reaction.emoji.name === "🔚") {
         // The user reacted to a message with the "END" emoji...maybe they want to end a quote?
-        var currentActiveQuoteIndex = -1;
+        let currentActiveQuoteIndex = -1;
         // If it exists, find the quote object in the activeQuoteObjects array
         // that the user who reacted is currently constructing
         for (var i = 0; i < activeQuoteObjects.length; i++) {
@@ -1430,43 +1532,11 @@ bot.on('messageReactionAdd', (reaction, user) => {
             // The user who reacted is finishing up an active quote
             console.log(user.toString() + " has finished adding a new quote...");
             var currentQuoteObject = activeQuoteObjects[i];
-            // formattedQuote will contain what we store in the DB as the final quote.
-            var formattedQuote = false;
-            
-            // For every message in the currentQuoteObject...
-            while (currentQuoteObject.messageObjectsInQuote.length > 0) {
-                // Find the oldest message in the array first...
-                var currentOldestMessageObjectIndex = 0;
-                var currentOldestMessageObject = currentQuoteObject.messageObjectsInQuote[currentOldestMessageObjectIndex];
-                for (var j = 0; j < currentQuoteObject.messageObjectsInQuote.length; j++) {
-                    if (currentQuoteObject.messageObjectsInQuote[j].createdTimestamp < currentOldestMessageObject.createdTimestamp) {
-                        currentOldestMessageObjectIndex = j;
-                        currentOldestMessageObject = currentQuoteObject.messageObjectsInQuote[currentOldestMessageObjectIndex];
-                    }
-                }
-                
-                // Start the formatted quote text string with the date of the oldest message in the quote
-                if (!formattedQuote) {
-                    var currentMessageTimestamp_YMD = moment(currentOldestMessageObject.createdTimestamp).format('YYYY-MM-DD')
-                    formattedQuote = currentMessageTimestamp_YMD;
-                }
-                
-                // Grab some data about the current-oldest message object in our currentQuoteObject...
-                var currentPartOfQuoteAuthor = currentOldestMessageObject.author.toString();
-                var currentPartOfQuoteTimestamp_formatted = moment(currentOldestMessageObject.createdTimestamp).format('hh:mm:ss');
-                var currentPartOfQuotecontent = currentOldestMessageObject.content;
-                
-                // Add to the formatted quote
-                formattedQuote += "\n" + currentPartOfQuoteAuthor +
-                    " [" + currentPartOfQuoteTimestamp_formatted + "]: " + currentPartOfQuotecontent;
-                
-                // Remove the currentOldestMessageObject from the messageObjectsInQuote in the currentQuoteObject
-                currentQuoteObject.messageObjectsInQuote.splice(currentOldestMessageObjectIndex, 1);
-            }
+            let formattedQuote = formatQuote(currentQuoteObject);
             
             // Save the quote to the database
             var quote = {
-                userWhoAdded: activeQuoteObjects[i].quoteAdder,
+                userWhoAdded: activeQuoteObjects[i].quoteAdderObject.toString(),
                 guild: activeQuoteObjects[i].quoteGuild,
                 channel: activeQuoteObjects[i].quoteChannel,
                 quote: formattedQuote
