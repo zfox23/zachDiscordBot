@@ -99,7 +99,7 @@ function playSoundFromURL(msg, URL) {
         handleErrorMessage(msg, playSoundFromURL.name, "The bot somehow doesn't have a voice connection in this server.");
     } else if (URL.indexOf("youtube.com" > -1)) {
         handleStatusMessage(msg, playSoundFromURL.name, `Asking \`ytdl\` nicely to play audio from ${URL}...`);
-        streamDispatchers[msgSenderVoiceChannel] = voiceConnection.play(ytdl(URL, {'quality': 'highestaudio'}));
+        streamDispatchers[msgSenderVoiceChannel] = voiceConnection.play(ytdl(URL, {'quality': 'highestaudio', 'volume': playlistInfo[msg.guild].volume || 1.0}));
     } else {
         errorMessage = `I don't know how to play anything but audio from YouTube URLs yet, and ${URL} isn't a YouTube URL.`;
         handleErrorMessage(msg, playSoundFromURL.name, errorMessage);
@@ -235,7 +235,7 @@ function handlePlayCommand(msg, args) {
 function handlePauseCommand(msg, args) {
     let msgSenderVoiceChannel = msg.member.voice.channel;
     if (!streamDispatchers[msgSenderVoiceChannel]) {
-        handleErrorMessage(msg, handlePauseCommand.name, "Nothing to pause, captain.");
+        handleStatusMessage(msg, handlePauseCommand.name, "Nothing to pause, captain.");
     } else if (streamDispatchers[msgSenderVoiceChannel]) {
         streamDispatchers[msgSenderVoiceChannel].pause();
     }
@@ -248,6 +248,26 @@ function handleLeaveCommand(msg, args) {
         handleSuccessMessage(msg, handleLeaveCommand.name, "I'm outta there! If I can't leave automatically, try disconnecting me manually.");
     } else {
         handleErrorMessage(msg, handleLeaveCommand.name, "I'm either not in a voice channel or I can't detect that I'm in one.");
+    }
+}
+
+function handleVolumeCommand(msg, args) {
+    let msgSenderVoiceChannel = msg.member.voice.channel;
+
+    if (args[0] && playlistInfo[msg.guild]) {
+        playlistInfo[msg.guild].volume = args[0];
+    } else if (args[0] && !playlistInfo[msg.guild]) {
+        playlistInfo[msg.guild] = {
+            "volume": args[0]
+        };
+    }
+
+    if (args[0] && streamDispatchers[msgSenderVoiceChannel]) {
+        streamDispatchers[msgSenderVoiceChannel].setVolume(playlistInfo[msg.guild].volume);
+    } else if (args[0] && !streamDispatchers[msgSenderVoiceChannel]) {
+        // No-op; logic handled by sets of conditionals above.
+    } else {
+        showCommandUsage(msg, "vol");
     }
 }
 
@@ -328,6 +348,16 @@ const commandDictionary = {
     'leave': {
         'description': "Forces the bot to leave its current Voice Channel, if it's in one.",
         'handler': handleLeaveCommand
+    },
+    'v': {
+        'description': "Sets the volume of the current or future Sound that plays from the Sound Playlist.",
+        'argCombos': [
+            {
+                'argCombo': '<volume>',
+                'description': 'The desired volume, from 0.1 to 2.0.'
+            }
+        ],
+        'handler': handleVolumeCommand
     }
 };
 
