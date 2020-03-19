@@ -8,14 +8,64 @@
 //
 
 const Discord = require('discord.js');
-const bot = new Discord.Client();
+const bot = new Discord.Client({ partials: ['MESSAGE', 'CHANNEL', 'REACTION'] });
 const auth = require('./auth.json');
 const youtubeAuthToken = auth.youtubeToken;
 const ytdl = require('ytdl-core');
-const {google} = require('googleapis');
-const {googleAuth} = require('google-auth-library');
+const { google } = require('googleapis');
+const { googleAuth } = require('google-auth-library');
+const fs = require('fs');
+const path = require('path');
+const https = require('https');
+const imageMagick = require('imagemagick');
+const ColorScheme = require('color-scheme');
+const rgbHex = require('rgb-hex');
+const moment = require('moment');
+const SQLite = require("better-sqlite3");
+
+const quotesSQL = new SQLite('./quotes/quotes.sqlite');
+
+function deleteTempFiles() {
+    let directory = __dirname + '/temp';
+    let files = fs.readdirSync(directory);
+
+    for (const file of files) {
+        if (file === "README.md" || file.indexOf(".mp3") > -1) {
+            continue;
+        }
+
+        fs.unlinkSync(path.join(directory, file));
+    }
+}
+
+function prepareSQLite() {
+    // Check if the table "quotes" exists.
+    const quotesTable = quotesSQL.prepare("SELECT count(*) FROM sqlite_master WHERE type='table' AND name = 'quotes';").get();
+    if (!quotesTable['count(*)']) {
+        // If the table isn't there, create it and setup the database correctly.
+        quotesSQL.prepare("CREATE TABLE quotes (id INTEGER PRIMARY KEY, created DATETIME DEFAULT CURRENT_TIMESTAMP, userWhoAdded TEXT, guild TEXT, channel TEXT, quote TEXT);").run();
+        // Ensure that the "id" row is always unique and indexed.
+        quotesSQL.prepare("CREATE UNIQUE INDEX idx_quotes_id ON quotes (id);").run();
+        quotesSQL.pragma("synchronous = 1");
+        quotesSQL.pragma("journal_mode = wal");
+    }
+
+    // We have some prepared statements to get, set, and delete the quote data.
+    bot.getQuote = quotesSQL.prepare("SELECT * FROM quotes WHERE guild = ? AND channel = ? AND id = ?;");
+    bot.getRandomQuote = quotesSQL.prepare("SELECT * FROM quotes WHERE guild = ? AND channel = ? ORDER BY random() LIMIT 1;");
+    bot.setQuote = quotesSQL.prepare("INSERT OR REPLACE INTO quotes (userWhoAdded, guild, channel, quote) VALUES (@userWhoAdded, @guild, @channel, @quote);");
+    bot.deleteQuote = quotesSQL.prepare("DELETE FROM quotes WHERE guild = ? AND channel = ? AND id = ?;");
+}
 
 bot.on('ready', () => {
+    console.log("Clearing temporary file directory...");
+    deleteTempFiles();
+    console.log("Cleared temporary file directory.");
+
+    console.log("Preparing SQLite tables and statements...");
+    prepareSQLite();
+    console.log("Prepared!");
+
     console.log(`Bot online. I'm Clamster! The clam with the pain.\nActually though I'm \`${bot.user.tag}\`.`);
 });
 
@@ -38,8 +88,12 @@ function showCommandUsage(msg, command, optionalArg) {
         for (let i = 0; i < argCombos.length; i++) {
             if (!optionalArg || (optionalArg && argCombos[i].argCombo.indexOf(optionalArg) > -1)) {
                 msgToSend += `${commandInvocationCharacter + command} <${argCombos[i].argCombo}>:\n`;
-                msgToSend += `${argCombos[i].description}`;
-                msgToSend += `\n\n`;
+                msgToSend += `${argCombos[i].description}\n`;
+                if (argCombos[i].handler) {
+                    msgToSend += argCombos[i].handler(msg);
+                    msgToSend += `\n`;
+                }
+                msgToSend += `\n`;
             }
         }
     }
@@ -113,9 +167,9 @@ function getYouTubeVideoTitleFromURL(msg, youTubeURL, callback) {
         handleErrorMessage(msg, getYouTubeVideoTitleFromURL.name, "You haven't set up a YouTube API key, so I can't get a title from a YouTube video URL!");
         return;
     }
-    
+
     let videoId = youTubeURL.substr(-11);
-    
+
     let youtubeService = google.youtube('v3');
     let parameters = {
         'maxResults': '1',
@@ -131,7 +185,7 @@ function getYouTubeVideoTitleFromURL(msg, youTubeURL, callback) {
             handleErrorMessage(msg, "YouTube API Search", `The YouTube API returned an error: ${err}`);
             return;
         }
-        
+
         let videoTitle = response.data.items[0].snippet.title;
         callback(msg, videoTitle);
     });
@@ -209,15 +263,22 @@ function playSoundFromURL(msg, URL) {
             'quality': 'highestaudio',
             'volume': playlistInfo[msg.guild].volume || 1.0,
             'highWaterMark': 1 << 25 // Fixes an issue where `StreamDispatcher` emits "finish" event too early.
-        }));
+        }), {
+            "bitrate": "auto"
+        });
         streamDispatchers[msgSenderVoiceChannel].on('close', () => {
+            streamDispatchers[msgSenderVoiceChannel].removeAllListeners('close');
             handleStatusMessage(msg, "StreamDispatcher on 'close'", "The `StreamDispatcher` emitted a `close` event.");
         });
         streamDispatchers[msgSenderVoiceChannel].on('finish', (reason) => {
-            handleStatusMessage(msg, "StreamDispatcher on 'finish'", `The \`StreamDispatcher\` emitted a \`finish\` event with reason "${reason || "<No Reason>"}".`);
+            streamDispatchers[msgSenderVoiceChannel].removeAllListeners('finish');
+            if (reason) {
+                handleStatusMessage(msg, "StreamDispatcher on 'finish'", `The \`StreamDispatcher\` emitted a \`finish\` event with reason "${reason || "<No Reason>"}".`);
+            }
             handleStreamFinished(msg);
         });
         streamDispatchers[msgSenderVoiceChannel].on('error', (err) => {
+            streamDispatchers[msgSenderVoiceChannel].removeAllListeners('error');
             handleErrorMessage(msg, "StreamDispatcher on 'error'", `The \`StreamDispatcher\` emitted an \`error\` event. Error: ${err}`);
         });
     } else {
@@ -263,9 +324,11 @@ function handleErrorMessage(msg, functionName, errorMessage) {
     msg.channel.send(errorMessage);
 }
 
-function handleSuccessMessage(msg, functionName, successMessage) {
+function handleSuccessMessage(msg, functionName, successMessage, suppressChannelMessage) {
     console.log(`Success in \`${functionName}()\` for Guild \`${msg.guild}\`:\n${successMessage}\n`);
-    msg.channel.send(successMessage);
+    if (!suppressChannelMessage) {
+        msg.channel.send(successMessage);
+    }
 }
 
 function handleStatusMessage(msg, functionName, statusMessage) {
@@ -273,7 +336,44 @@ function handleStatusMessage(msg, functionName, statusMessage) {
     msg.channel.send(statusMessage);
 }
 
-function handleStopCommand(msg, args) {
+function pushPlaylistEndingSoundThenPlayThenLeave(msg) {
+    let msgSenderVoiceChannel = msg.member.voice.channel;
+    let voiceConnection = voiceConnections[msgSenderVoiceChannel.id];
+
+    let randomEndingSoundFolder = './botResources/sounds/playlistEndingSounds/';
+    let randomEndingSoundFolderContents = fs.readdirSync(randomEndingSoundFolder);
+    let randomEndingSoundFilename = randomEndingSoundFolderContents[Math.floor(Math.random() * randomEndingSoundFolderContents.length)];
+    if (!randomEndingSoundFilename) {
+        handleErrorMessage(msg, pushPlaylistEndingSoundThenPlayThenLeave.name, "No random ending sounds!");
+        return;
+    }
+
+    let randomEndingSoundPath = randomEndingSoundFolder + randomEndingSoundFilename;
+    let readStream = fs.createReadStream(randomEndingSoundPath);
+
+    if (!voiceConnections[msgSenderVoiceChannel.id]) {
+        handleErrorMessage(msg, pushPlaylistEndingSoundThenPlayThenLeave.name, "No voice connection!");
+    } else if (streamDispatchers[msgSenderVoiceChannel]) {
+        streamDispatchers[msgSenderVoiceChannel] = voiceConnection.play(readStream, {
+            "volume": 1.0
+        });
+        streamDispatchers[msgSenderVoiceChannel].on('close', () => {
+            streamDispatchers[msgSenderVoiceChannel].removeAllListeners('close');
+        });
+        streamDispatchers[msgSenderVoiceChannel].on('finish', (reason) => {
+            streamDispatchers[msgSenderVoiceChannel].removeAllListeners('finish');
+            handleStopCommand(msg);
+        });
+        streamDispatchers[msgSenderVoiceChannel].on('error', (err) => {
+            streamDispatchers[msgSenderVoiceChannel].removeAllListeners('error');
+            handleErrorMessage(msg, "StreamDispatcher on 'error'", `The \`StreamDispatcher\` emitted an \`error\` event. Error: ${err}`);
+        });
+    } else {
+        handleErrorMessage(msg, pushPlaylistEndingSoundThenPlayThenLeave.name, 'Unhandled state.');
+    }
+}
+
+function handleStopCommand(msg, args, playLeaveSoundBeforeLeaving) {
     let guild = msg.guild;
     let botCurrentVoiceChannelInGuild = getBotCurrentVoiceChannelInGuild(msg);
     let msgSenderVoiceChannel = msg.member.voice.channel;
@@ -290,11 +390,14 @@ function handleStopCommand(msg, args) {
         handleStatusMessage(msg, handleStopCommand.name, "There's no playlist associated with this Guild, so I won't reset the Current Playlist Index. However, I will try to leave the voice channel I'm in. If I don't leave the voice channel, please remove me manually.");
         botCurrentVoiceChannelInGuild.leave();
         retval.didLeave = true;
-    } else if (botCurrentVoiceChannelInGuild && playlistInfo[guild] && voiceConnections[msgSenderVoiceChannel.id]) {
+    } else if (botCurrentVoiceChannelInGuild && playlistInfo[guild] && voiceConnections[msgSenderVoiceChannel.id] && !playLeaveSoundBeforeLeaving) {
         handleSuccessMessage(msg, handleStopCommand.name, "Resetting Current Playlist Index and leaving voice channel.");
         playlistInfo[guild].currentPlaylistIndex = -1;
         voiceConnections[msgSenderVoiceChannel.id].disconnect();
         voiceConnections[msgSenderVoiceChannel.id] = null;
+    } else if (botCurrentVoiceChannelInGuild && playlistInfo[guild] && voiceConnections[msgSenderVoiceChannel.id] && playLeaveSoundBeforeLeaving) {
+        handleSuccessMessage(msg, handleStopCommand.name, "Resetting Current Playlist Index and leaving voice channel after a short sound clip...");
+        pushPlaylistEndingSoundThenPlayThenLeave(msg);
     } else if (botCurrentVoiceChannelInGuild && playlistInfo[guild] && !voiceConnections[msgSenderVoiceChannel.id]) {
         handleSuccessMessage(msg, handleStopCommand.name, "I'm in a voice channel, but I don't have a Voice Connection. I'm going to reset the Current Playlist Index and attempt to leave. If I don't leave the voice channel, please remove me manually.");
         playlistInfo[guild].currentPlaylistIndex = -1;
@@ -348,7 +451,7 @@ function handlePlaylistNext(msg) {
     } else if (playlistInfo[guild] && playlistInfo[guild].currentPlaylistIndex >= (playlistInfo[guild].playlist.length - 1) && playlistInfo[guild].repeatMode !== "all") {
         successMessage = "There are no more Sounds in the Sound Playlist. Stopping playback...";
         handleSuccessMessage(msg, handlePlaylistNext.name, successMessage);
-        handleStopCommand(msg);
+        handleStopCommand(msg, null, true);
     } else if (playlistInfo[guild] && playlistInfo[guild].currentPlaylistIndex >= (playlistInfo[guild].playlist.length - 1) && playlistInfo[guild].repeatMode === "all") {
         successMessage = `The Playlist's repeat mode is "all". That was the end of the playlist. Starting the playlist over...`;
         handleSuccessMessage(msg, handlePlaylistNext.name, successMessage);
@@ -400,7 +503,7 @@ function handlePlaylistClear(msg) {
 const possibleRepeatModes = ["none", "one", "all"];
 function handlePlaylistChangeRepeatMode(msg, newRepeatMode) {
     let guild = msg.guild;
-    
+
     if (!possibleRepeatModes.contains(newRepeatMode)) {
         handleErrorMessage(msg, handlePlaylistChangeRepeatMode.name, 'Unhandled repeat mode.');
     } else if (playlistInfo[guild]) {
@@ -452,7 +555,7 @@ function handlePlaylistList(msg) {
     } else if (playlistInfo[guild].playlist && playlistInfo[guild].playlist.length > 0) {
         console.log(`Listing playlist for guild ${guild}...`);
         let playlistString = "```\n";
-        for (let i = 0; i < playlistInfo[guild].playlist.length; i++ ) {
+        for (let i = 0; i < playlistInfo[guild].playlist.length; i++) {
             if (playlistInfo[guild].currentPlaylistIndex === i) {
                 playlistString += "🎶 ";
             }
@@ -489,9 +592,9 @@ function handlePlaylistCommand(msg, args) {
     } else if (args[0] && args[0] === "list") {
         handlePlaylistList(msg);
     } else if (args[0] && args[0] === "list" && args[1] && args[1] === "save") {
-        
+        handleErrorMessage(msg, handlePlaylistCommand, `Wow, you actually wanted to save a playlist? My developer hasn't implemented this yet because nobody uses it. Message him and maybe he'll get this working again.`);
     } else if (args[0] && args[0] === "list" && args[1] && args[1] === "load") {
-        
+        handleErrorMessage(msg, handlePlaylistCommand, `Wow, you actually wanted to load a playlist? My developer hasn't implemented this yet because nobody uses it. Message him and maybe he'll get this working again.`);
     } else {
         showCommandUsage(msg, "p");
     }
@@ -564,6 +667,175 @@ function handleHelpCommand(msg, args) {
         msg.channel.send(allHelpMessage);
     } else {
         showCommandUsage(msg, "help");
+    }
+}
+
+const emojiFolder = "./bigEmoji/";
+function refreshEmojiSystem() {
+    let emojiFolderContents = fs.readdirSync(emojiFolder);
+    for (let i = 0; i < emojiFolderContents.length; i++) {
+        if (emojiFolderContents[i] === "README.md") {
+            continue;
+        }
+        availableEmojis[emojiFolderContents[i].slice(0, -4).toLowerCase()] = emojiFolderContents[i];
+    }
+}
+
+var availableEmojis = {};
+function handleEmojiCommand(msg, args) {
+    if (!args[0] || args[1]) {
+        showCommandUsage(msg, "e");
+        return;
+    }
+
+    refreshEmojiSystem();
+
+    msg.channel.send({
+        files: [
+            {
+                "attachment": emojiFolder + availableEmojis[args[0].toLowerCase()],
+                "name": availableEmojis[args[0].toLowerCase()]
+            }
+        ]
+    });
+}
+
+function formatAvailableEmojiNames(msg) {
+    refreshEmojiSystem();
+    return (Object.keys(availableEmojis).join(", "))
+}
+
+function getDominantColor(imagePath, callback) {
+    if (!callback) {
+        callback = function () { }
+    }
+
+    var imArgs = [imagePath, '-scale', '1x1\!', '-format', '%[pixel:u]', 'info:-']
+
+    imageMagick.convert(imArgs, function (err, stdout) {
+        if (err) {
+            callback(err);
+            return;
+        }
+
+        var rgba = stdout.slice(stdout.indexOf('(') + 1, stdout.indexOf(')')).split(',');
+        var hex = rgbHex(stdout);
+        callback(null, { "rgba": rgba, "hex": hex });
+    });
+}
+
+function handleRoleColorCommand(msg, args) {
+    if (args[0] && args[0] === "auto") {
+        console.log(`Trying to automatially get the dominant color from ${msg.author.avatarURL()}...`);
+        let filename = `${__dirname}${path.sep}temp${path.sep}${Date.now()}.${(msg.author.avatarURL()).split('.').pop().split('?')[0]}`;
+        console.log(`Saving profile pic to ${filename}...`);
+        const file = fs.createWriteStream(filename);
+        const request = https.get(msg.author.avatarURL(), function (response) {
+            response.pipe(file);
+            file.on('finish', function () {
+                file.close(function () {
+                    console.log(`Saved profile pic to ${filename}!`);
+                    console.log(`Trying to get dominant color...`);
+                    getDominantColor(filename, function (err, outputColorObj) {
+                        fs.unlinkSync(filename);
+
+                        if (err) {
+                            console.log(`Error when getting dominant color: ${err}`);
+                            msg.channel.send("Yikes, something bad happened on my end. Sorry. Blame Zach.");
+                            return;
+                        }
+
+                        let outputColorHex = outputColorObj.hex;
+
+                        let outputColorRgba = outputColorObj.rgba;
+                        let r = parseInt(outputColorRgba[0]);
+                        let g = parseInt(outputColorRgba[1]);
+                        let b = parseInt(outputColorRgba[2]);
+                        let outputColorHue;
+                        let maxRGB = Math.max(r, g, b);
+                        let minRGB = Math.min(r, g, b);
+                        if (maxRGB === r) {
+                            outputColorHue = 60 * (g - b) / (maxRGB - minRGB);
+                        } else if (maxRGB === g) {
+                            outputColorHue = 60 * (2 + (b - r) / (maxRGB - minRGB));
+                        } else {
+                            outputColorHue = 60 * (4 + (r - g) / (maxRGB - minRGB));
+                        }
+                        outputColorHue = Math.round(outputColorHue);
+                        if (outputColorHue < 0) {
+                            outputColorHue += 360;
+                        }
+                        console.log(`\`outputColorHue\` is ${outputColorHue}`);
+
+                        if (!outputColorHue) {
+                            console.log(`Error when getting dominant color: No \`outputColorHue\`. outputColorObj: ${JSON.stringify(outputColorObj)}`);
+                            msg.channel.send("Yikes, something bad happened on my end. Sorry. Blame Zach, and he'll check the logs.");
+                            return;
+                        }
+
+                        let scheme = new ColorScheme;
+                        scheme.from_hue(outputColorHue).scheme('contrast');
+                        let colorSchemeColors = scheme.colors();
+                        colorSchemeColors = colorSchemeColors.map(i => '#' + i);
+
+                        if (outputColorHex.length === 8) {
+                            outputColorHex = outputColorHex.slice(0, 6);
+                        }
+                        outputColorHex = `#${outputColorHex}`;
+
+                        let guildMember = msg.member;
+                        let memberRoles = guildMember.roles;
+                        memberRoles.highest.setColor(outputColorHex, `User set their color automatically based on their profile picture.`)
+                            .then(updated => {
+                                console.log(`Automatically set color of role named ${memberRoles.highest} to ${outputColorHex} based on their profile picture: ${msg.author.avatarURL()}`);
+                                msg.channel.send(`I've selected ${outputColorHex} for you. You might also like one of the following colors:\n${colorSchemeColors.join(', ')}`);
+                            })
+                            .catch(console.error);
+                    });
+                });
+            });
+        });
+    } else if (args[0] && ((args[0].startsWith("#") && args[0].length === 7) || (args[0].length === 6))) {
+        let hexColor = args[0].length === 6 ? "#" + args[0] : args[0];
+        let guildMember = msg.member;
+        let memberRoles = guildMember.roles;
+        memberRoles.highest.setColor(hexColor, `User set their color manually.`)
+            .then(updated => {
+                console.log(`Set color of role named ${memberRoles.highest} to ${hexColor}.`);
+                msg.channel.send(`Gorgeous.`);
+            })
+            .catch(console.error);
+    } else {
+        showCommandUsage(msg, "roleColor");
+    }
+}
+
+function handleQuoteCommand(msg, args) {
+    if (args[2]) {
+        showCommandUsage(msg, "quote");
+    } else if (args[1] && (args[0] === "del" || args[0] === "delete")) {
+        // Delete the quote if possible
+        let result = bot.deleteQuote.run(msg.guild.id, msg.channel.id, args[1]);
+
+        // If the quote was deleted...
+        if (result.changes > 0) {
+            handleSuccessMessage(msg, handleQuoteCommand.name, `Quote with ID ${args[1]} deleted.`);
+        } else {
+            handleErrorMessage(msg, handleQuoteCommand.name, `Quote with ID ${args[1]} not found.`);
+        }
+    } else if (args[0]) {
+        let result = bot.getQuote.get(msg.guild.id, msg.channel.id, args[0]);
+        if (result) {
+            handleSuccessMessage(msg, handleQuoteCommand.name, `Quote with ID ${args[0]} found.`, true);
+            msg.channel.send(`#${result.id} ${result.quote}`);
+        } else {
+            handleErrorMessage(msg, handleQuoteCommand.name, 'No quote with that ID.');
+        }
+    } else {
+        let result = bot.getRandomQuote.get(msg.guild.id, msg.channel.id);
+        if (result) {
+            msg.channel.send(`#${result.id} ${result.quote}`);
+        }
     }
 }
 
@@ -657,7 +929,7 @@ const commandDictionary = {
         'description': "Sets the volume of the current or future Sound that plays from the Sound Playlist.",
         'argCombos': [
             {
-                'argCombo': '<volume>',
+                'argCombo': 'volume',
                 'description': 'The desired volume, from 0.1 to 2.0.'
             }
         ],
@@ -667,23 +939,84 @@ const commandDictionary = {
         'description': "Displays usage for all commands.",
         'argCombos': [
             {
-                'argCombo': '<Optional. Command Argument>',
+                'argCombo': 'Optional. Command Argument',
                 'description': 'Optional. Command argument to get help with.'
             }
         ],
         'handler': handleHelpCommand
+    },
+    'e': {
+        'description': "Displays a BIG emoji image.",
+        'argCombos': [
+            {
+                'argCombo': 'Emoji Name',
+                'description': 'The name of the emoji to display.',
+                'handler': formatAvailableEmojiNames
+            }
+        ],
+        'handler': handleEmojiCommand
+    },
+    'roleColor': {
+        'description': "Set's the user's role's color.",
+        'argCombos': [
+            {
+                'argCombo': 'Hex Color',
+                'description': "Sets the user's role color to the specified hex color."
+            },
+            {
+                'argCombo': '"auto"',
+                'description': "Sets the user's role color automatically based on their profile picture's colors."
+            }
+        ],
+        'handler': handleRoleColorCommand
+    },
+    'quote': {
+        'description': "The entry point into a robust quote saving/loading system. To start saving a quote, add the '🔠' emoji to some text.",
+        'argCombos': [
+            {
+                'argCombo': '',
+                'description': "Gets a random quote from the database that belongs to the channel in which you invoked the command."
+            },
+            {
+                'argCombo': 'delete <id>',
+                'description': "Deletes a quote from the database. You can only delete quotes from the database if the quote you're trying to delete was saved in the channel in which you invoke this command."
+            }
+        ],
+        'handler': handleQuoteCommand
     }
 };
 
-bot.on('message', msg => {
-    if (msg.content === 'ping') {
-        msg.reply('pong');
+function isEmpty(obj) {
+    for (let key in obj) {
+        if (obj.hasOwnProperty(key))
+            return false;
     }
+    return true;
+}
 
+bot.on('message', msg => {
     if (msg.content.substring(0, 1) === commandInvocationCharacter) {
         console.log(`Got command in Guild \`${msg.guild}\`: ${msg.content}`);
         let args = msg.content.substring(1).split(' ');
         let command = args.splice(0, 1)[0];
+
+        // If the "command" is actually an emoji, display the emoji instead of parsing the command.
+        // This would seem like a bug if you named one of your emojis the same as one of the commands,
+        // but I don't expect that to happen.
+        if (isEmpty(availableEmojis)) {
+            refreshEmojiSystem();
+        }
+        if (availableEmojis[command.toLowerCase()]) {
+            msg.channel.send({
+                files: [
+                    {
+                        "attachment": emojiFolder + availableEmojis[command.toLowerCase()],
+                        "name": availableEmojis[command.toLowerCase()]
+                    }
+                ]
+            });
+            return;
+        }
 
         if (commandDictionary[command] && commandDictionary[command].handler) {
             commandDictionary[command].handler(msg, args);
@@ -693,6 +1026,199 @@ bot.on('message', msg => {
         } else if (commandDictionary[command] && !commandDictionary[command].handler) {
             let errorMsg = `There is no handler in the Command Dictionary for the command \`${commandInvocationCharacter + command}\`!`;
             handleErrorMessage(msg, "bot.on('message')", errorMsg);
+        }
+    }
+});
+
+// Each new QuoteObject contains data about the quote that a user is currently constructing
+function QuoteObject(quoteAdderObject, quoteGuild, quoteChannel, firstMessageObject, endQuoteMessageID) {
+    this.quoteAdderObject = quoteAdderObject;
+    this.quoteGuild = quoteGuild;
+    this.quoteChannel = quoteChannel;
+    this.messageObjectsInQuote = [firstMessageObject];
+    this.endQuoteMessageID = endQuoteMessageID;
+}
+function formatQuote(quoteObject) {
+    // formattedQuote will contain the return value, which is used, for example, for what we might store in the DB as the final quote.
+    let formattedQuote = false;
+
+    // For every message in the currentQuoteObject...
+    let messageIDsUsed = [];
+    while (quoteObject.messageObjectsInQuote.length !== messageIDsUsed.length) {
+        // Find the oldest message in the array first...
+        let currentOldestMessageObjectIndex = 0;
+        let currentOldestMessageObject = null;
+        for (let j = 0; j < quoteObject.messageObjectsInQuote.length; j++) {
+            if (messageIDsUsed.includes(quoteObject.messageObjectsInQuote[j].id)) {
+                continue;
+            }
+
+            if (!currentOldestMessageObject || quoteObject.messageObjectsInQuote[j].createdTimestamp < currentOldestMessageObject.createdTimestamp) {
+                currentOldestMessageObjectIndex = j;
+                currentOldestMessageObject = quoteObject.messageObjectsInQuote[currentOldestMessageObjectIndex];
+            }
+        }
+
+        // Start the formatted quote text string with the date of the oldest message in the quote
+        if (!formattedQuote) {
+            let currentMessageTimestamp_YMD = moment(currentOldestMessageObject.createdTimestamp).format('YYYY-MM-DD')
+            formattedQuote = currentMessageTimestamp_YMD;
+        }
+
+        // Grab some data about the current-oldest message object in our quoteObject...
+        let currentPartOfQuoteAuthor = currentOldestMessageObject.author.toString();
+        let currentPartOfQuoteTimestamp_formatted = moment(currentOldestMessageObject.createdTimestamp).format('hh:mm:ss');
+        let currentPartOfQuoteContent = currentOldestMessageObject.content || "";
+        if (currentOldestMessageObject.attachments) {
+            currentPartOfQuoteContent += `\n`;
+            currentOldestMessageObject.attachments.each((attachment) => {
+                currentPartOfQuoteContent += `${attachment.url}\n`;
+            });
+        }
+
+        // Add to the formatted quote
+        formattedQuote += "\n" + currentPartOfQuoteAuthor +
+            " [" + currentPartOfQuoteTimestamp_formatted + "]: " + currentPartOfQuoteContent;
+
+        messageIDsUsed.push(currentOldestMessageObject.id);
+    }
+
+    return formattedQuote;
+}
+// This array holds all of the quotes that the bot is currently keeping track of.
+var activeQuoteObjects = [];
+function getQuoteContinueMessage(userID) {
+    let quoteContinueMessage = "keep tagging parts of the quote with 🔠 or react to this message with 🔚 to save it.";
+    quoteContinueMessage = "<@" + userID + ">, " + quoteContinueMessage;
+    return quoteContinueMessage;
+}
+function updateEndQuoteMessage(currentChannel, quoteObject) {
+    // This message is posted right after a new user starts constructing a new quote.
+    let quoteContinueMessage = getQuoteContinueMessage(quoteObject.quoteAdderObject.id);
+
+    // Get the `Message` object associated with the `endQuoteMessageID` associated with the quote to which the user is adding.
+    const filter = m => m.id === quoteObject.endQuoteMessageID;
+    currentChannel.awaitMessages(filter)
+        .then(message => {
+            // Edit the "Quote End Message" with a preview of the quote that the user is currently building.
+            message.edit(quoteContinueMessage + "\nHere's a preview of your quote:\n\n" + formatQuote(quoteObject));
+        });
+}
+bot.on('messageReactionRemove', (reaction, user) => {
+    if (reaction.emoji.name === "🔠" || reaction.emoji.name === "🔡") {
+        // Start off this index at -1
+        let currentActiveQuoteIndex = -1;
+        // If it exists, find the quote object in the activeQuoteObjects array
+        // that the user who reacted is currently constructing
+        for (let i = 0; i < activeQuoteObjects.length; i++) {
+            if (activeQuoteObjects[i].quoteAdderObject.toString() === user.toString()) {
+                currentActiveQuoteIndex = i;
+                break;
+            }
+        }
+
+        if (currentActiveQuoteIndex > -1) {
+            for (let i = 0; i < activeQuoteObjects[currentActiveQuoteIndex].messageObjectsInQuote.length; i++) {
+                if (reaction.message.id === activeQuoteObjects[currentActiveQuoteIndex].messageObjectsInQuote[i].id) {
+                    activeQuoteObjects[currentActiveQuoteIndex].messageObjectsInQuote.splice(i, 1);
+
+                    if (activeQuoteObjects[currentActiveQuoteIndex].messageObjectsInQuote.length === 0) {
+                        // Tell the user they bailed.
+                        const filter = m => m.id === activeQuoteObjects[currentActiveQuoteIndex].endQuoteMessageID;
+                        reaction.message.channel.awaitMessages(filter)
+                            .then(message => {
+                                // Edit the "Quote End Message" with a preview of the quote that the user is currently building.
+                                message.edit(`<@${user.id}>, you have removed all messages from the quote you were building. Start a new one by reacting to a message with 🔠!`);
+                                console.log(user.toString() + " bailed while adding a new quote.");
+                            });
+
+                        // Remove the current QuoteObject from the activeQuoteObjects array
+                        activeQuoteObjects.splice(currentActiveQuoteIndex, 1);
+                        return;
+                    }
+
+                    // Update the end quote message with the new preview of the quote.
+                    updateEndQuoteMessage(reaction.message.channel, activeQuoteObjects[currentActiveQuoteIndex]);
+                    return;
+                }
+            }
+        }
+    }
+});
+bot.on('messageReactionAdd', (reaction, user) => {
+    // If the user reacted to a message with the "ABCD" emoji...
+    if (reaction.emoji.name === "🔠" || reaction.emoji.name === "🔡") {
+        // Start off this index at -1
+        let currentActiveQuoteIndex = -1;
+        // If it exists, find the quote object in the activeQuoteObjects array
+        // that the user who reacted is currently constructing
+        for (let i = 0; i < activeQuoteObjects.length; i++) {
+            if (activeQuoteObjects[i].quoteAdderObject.toString() === user.toString()) {
+                currentActiveQuoteIndex = i;
+                break;
+            }
+        }
+
+        // This message is posted right after a new user starts constructing a new quote.
+        let quoteContinueMessage = getQuoteContinueMessage(user.id);
+
+        if (currentActiveQuoteIndex === -1) {
+            // This user is adding a new quote!
+            console.log(user.toString() + " has started adding a new quote...");
+
+            // Tell the user how to continue their quote, then push a new QuoteObject
+            // to the activeQuoteObjects array to keep track of it
+            reaction.message.channel.send(quoteContinueMessage)
+                .then(message => {
+                    currentActiveQuoteIndex = activeQuoteObjects.push(new QuoteObject(
+                        user,
+                        reaction.message.guild.id,
+                        reaction.message.channel.id,
+                        reaction.message,
+                        message.id)
+                    ) - 1;
+
+                    updateEndQuoteMessage(reaction.message.channel, activeQuoteObjects[currentActiveQuoteIndex]);
+                });
+        } else {
+            // This user is updating an existing quote!
+            console.log(user.toString() + " is updating an existing quote with internal index " + currentActiveQuoteIndex + "...");
+            // Add the message that they reacted to to the relevant `QuoteObject` in `activeQuoteObjects`
+            activeQuoteObjects[currentActiveQuoteIndex].messageObjectsInQuote.push(reaction.message);
+            updateEndQuoteMessage(reaction.message.channel, activeQuoteObjects[currentActiveQuoteIndex]);
+        }
+    } else if (reaction.emoji.name === "🔚") {
+        // The user reacted to a message with the "END" emoji...maybe they want to end a quote?
+        let currentActiveQuoteIndex = -1;
+        // If it exists, find the quote object in the activeQuoteObjects array
+        // that the user who reacted is currently constructing
+        for (let i = 0; i < activeQuoteObjects.length; i++) {
+            if (activeQuoteObjects[i].endQuoteMessageID === reaction.message.id) {
+                currentActiveQuoteIndex = i;
+                break;
+            }
+        }
+
+        // If the currentActiveQuoteIndex is still at -1, that means the user isn't ending a quote,
+        // and just happened to react to a message with the "END" emoji.
+        if (currentActiveQuoteIndex > -1) {
+            // The user who reacted is finishing up an active quote
+            console.log(user.toString() + " has finished adding a new quote...");
+            let currentQuoteObject = activeQuoteObjects[currentActiveQuoteIndex];
+            let formattedQuote = formatQuote(currentQuoteObject);
+
+            // Save the quote to the database
+            let quote = {
+                userWhoAdded: activeQuoteObjects[currentActiveQuoteIndex].quoteAdderObject.toString(),
+                guild: activeQuoteObjects[currentActiveQuoteIndex].quoteGuild,
+                channel: activeQuoteObjects[currentActiveQuoteIndex].quoteChannel,
+                quote: formattedQuote
+            }
+            let id = bot.setQuote.run(quote).lastInsertRowid;
+            reaction.message.channel.send("Quote added to database with ID " + id);
+
+            // Remove the current QuoteObject from the activeQuoteObjects array
+            activeQuoteObjects.splice(currentActiveQuoteIndex, 1);
         }
     }
 });
