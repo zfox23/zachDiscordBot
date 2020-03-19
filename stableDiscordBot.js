@@ -1066,7 +1066,7 @@ function formatQuote(quoteObject) {
         }
 
         // Grab some data about the current-oldest message object in our quoteObject...
-        let currentPartOfQuoteAuthor = currentOldestMessageObject.author.toString();
+        let currentPartOfQuoteAuthor = currentOldestMessageObject.author ? currentOldestMessageObject.author.toString() : "???";
         let currentPartOfQuoteTimestamp_formatted = moment(currentOldestMessageObject.createdTimestamp).format('hh:mm:ss');
         let currentPartOfQuoteContent = currentOldestMessageObject.content || "";
         if (currentOldestMessageObject.attachments) {
@@ -1097,8 +1097,7 @@ function updateEndQuoteMessage(currentChannel, quoteObject) {
     let quoteContinueMessage = getQuoteContinueMessage(quoteObject.quoteAdderObject.id);
 
     // Get the `Message` object associated with the `endQuoteMessageID` associated with the quote to which the user is adding.
-    const filter = m => m.id === quoteObject.endQuoteMessageID;
-    currentChannel.awaitMessages(filter)
+    currentChannel.messages.fetch(quoteObject.endQuoteMessageID)
         .then(message => {
             // Edit the "Quote End Message" with a preview of the quote that the user is currently building.
             message.edit(quoteContinueMessage + "\nHere's a preview of your quote:\n\n" + formatQuote(quoteObject));
@@ -1124,8 +1123,7 @@ bot.on('messageReactionRemove', (reaction, user) => {
 
                     if (activeQuoteObjects[currentActiveQuoteIndex].messageObjectsInQuote.length === 0) {
                         // Tell the user they bailed.
-                        const filter = m => m.id === activeQuoteObjects[currentActiveQuoteIndex].endQuoteMessageID;
-                        reaction.message.channel.awaitMessages(filter)
+                        reaction.message.channel.messages.fetch(activeQuoteObjects[currentActiveQuoteIndex].endQuoteMessageID)
                             .then(message => {
                                 // Edit the "Quote End Message" with a preview of the quote that the user is currently building.
                                 message.edit(`<@${user.id}>, you have removed all messages from the quote you were building. Start a new one by reacting to a message with 🔠!`);
@@ -1164,28 +1162,51 @@ bot.on('messageReactionAdd', (reaction, user) => {
 
         if (currentActiveQuoteIndex === -1) {
             // This user is adding a new quote!
-            console.log(user.toString() + " has started adding a new quote...");
+            console.log(user.username + " has started adding a new quote...");
 
             // Tell the user how to continue their quote, then push a new QuoteObject
             // to the activeQuoteObjects array to keep track of it
             reaction.message.channel.send(quoteContinueMessage)
                 .then(message => {
-                    currentActiveQuoteIndex = activeQuoteObjects.push(new QuoteObject(
-                        user,
-                        reaction.message.guild.id,
-                        reaction.message.channel.id,
-                        reaction.message,
-                        message.id)
-                    ) - 1;
-
-                    updateEndQuoteMessage(reaction.message.channel, activeQuoteObjects[currentActiveQuoteIndex]);
+                    if (reaction.message.partial) {
+                        reaction.message.fetch()
+                            .then(fullmessage => {
+                                currentActiveQuoteIndex = activeQuoteObjects.push(new QuoteObject(
+                                    user,
+                                    fullmessage.guild.id,
+                                    fullmessage.channel.id,
+                                    fullmessage,
+                                    message.id)
+                                ) - 1;
+            
+                                updateEndQuoteMessage(reaction.message.channel, activeQuoteObjects[currentActiveQuoteIndex]);
+                            })
+                    } else {
+                        currentActiveQuoteIndex = activeQuoteObjects.push(new QuoteObject(
+                            user,
+                            reaction.message.guild.id,
+                            reaction.message.channel.id,
+                            reaction.message,
+                            message.id)
+                        ) - 1;
+    
+                        updateEndQuoteMessage(reaction.message.channel, activeQuoteObjects[currentActiveQuoteIndex]);
+                    }
                 });
         } else {
             // This user is updating an existing quote!
-            console.log(user.toString() + " is updating an existing quote with internal index " + currentActiveQuoteIndex + "...");
+            console.log(user.username + " is updating an existing quote with internal index " + currentActiveQuoteIndex + "...");
             // Add the message that they reacted to to the relevant `QuoteObject` in `activeQuoteObjects`
-            activeQuoteObjects[currentActiveQuoteIndex].messageObjectsInQuote.push(reaction.message);
-            updateEndQuoteMessage(reaction.message.channel, activeQuoteObjects[currentActiveQuoteIndex]);
+            if (reaction.message.partial) {
+                reaction.message.fetch()
+                    .then(fullmessage => {
+                        activeQuoteObjects[currentActiveQuoteIndex].messageObjectsInQuote.push(fullmessage);
+                        updateEndQuoteMessage(fullmessage.channel, activeQuoteObjects[currentActiveQuoteIndex]);
+                    })
+            } else {
+                activeQuoteObjects[currentActiveQuoteIndex].messageObjectsInQuote.push(reaction.message);
+                updateEndQuoteMessage(reaction.message.channel, activeQuoteObjects[currentActiveQuoteIndex]);
+            }
         }
     } else if (reaction.emoji.name === "🔚") {
         // The user reacted to a message with the "END" emoji...maybe they want to end a quote?
@@ -1203,7 +1224,7 @@ bot.on('messageReactionAdd', (reaction, user) => {
         // and just happened to react to a message with the "END" emoji.
         if (currentActiveQuoteIndex > -1) {
             // The user who reacted is finishing up an active quote
-            console.log(user.toString() + " has finished adding a new quote...");
+            console.log(user.username + " has finished adding a new quote...");
             let currentQuoteObject = activeQuoteObjects[currentActiveQuoteIndex];
             let formattedQuote = formatQuote(currentQuoteObject);
 
