@@ -1,6 +1,6 @@
 {
   "name": "stablediscordbot",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Zach's Next Generation Bot. Like the old one, except more stable!",
   "main": "stableBot.js",
   "author": "Zach Fox",
@@ -11,6 +11,8 @@
     "@discordjs/opus": "^0.1.0",
     "bufferutil": "^4.0.1",
     "discord.js": "^12.0.2",
+    "google-auth-library": "^5.10.1",
+    "googleapis": "^48.0.0",
     "sodium": "^3.0.2",
     "utf-8-validate": "^5.0.2",
     "ytdl-core": "^2.0.0"
