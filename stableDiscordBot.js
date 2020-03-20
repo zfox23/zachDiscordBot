@@ -113,7 +113,7 @@ function onSoundsPlaylistAddedTo(msg) {
         playlistInfo[guild].currentPlaylistIndex = playlistInfo[guild].playlist.length - 1;
         changeSoundBasedOnCurrentPlaylistIndex(msg);
     } else if (playlistInfo[guild].currentPlaylistIndex > -1 && !botCurrentVoiceChannelInGuild) {
-        handleStatusMessage(msg, onSoundsPlaylistAddedTo.name, "I'm not connected to a voice channel, so I'm just going to start playing the Sound you just added to the list.");
+        handleStatusMessage(msg, onSoundsPlaylistAddedTo.name, "I'm not connected to a voice channel, so I'm just going to start playing the Sound you just added to the list.", true);
         playlistInfo[guild].currentPlaylistIndex = playlistInfo[guild].playlist.length - 1;
         changeSoundBasedOnCurrentPlaylistIndex(msg);
     }
@@ -156,7 +156,7 @@ function handleYouTubeSearchThenAdd(msg, args) {
             "URL": fullUrl
         });
 
-        handleStatusMessage(msg, handleYouTubeCommand.name, `Adding\n"${videoTitle}"\nfrom\n\`${fullUrl}\`\nto the Sounds Playlist.`);
+        handleStatusMessage(msg, handleYouTubeCommand.name, `Adding "${videoTitle}" from \`${fullUrl}\` to the Sounds Playlist.`);
 
         onSoundsPlaylistAddedTo(msg);
     });
@@ -206,6 +206,13 @@ function maybeSetupGuildPlaylist(msg) {
 var playlistInfo = {};
 function handleYouTubeCommand(msg, args) {
     let guild = msg.guild;
+    let msgSenderVoiceChannel = msg.member.voice.channel;
+
+    if (!msgSenderVoiceChannel) {
+        errorMessage = "Join a voice channel first.";
+        handleErrorMessage(msg, handleYouTubeCommand.name, errorMessage);
+        return;
+    }
 
     maybeSetupGuildPlaylist(msg);
 
@@ -220,7 +227,7 @@ function handleYouTubeCommand(msg, args) {
         onSoundsPlaylistAddedTo(msg);
 
         getYouTubeVideoTitleFromURL(msg, youTubeURL, (cbMsg, videoTitle) => {
-            handleStatusMessage(cbMsg, "getYouTubeVideoTitleFromURL Callback", `Updating title associated with \`${youTubeURL}\` to "${videoTitle}".`);
+            handleStatusMessage(cbMsg, "getYouTubeVideoTitleFromURL Callback", `Updating title associated with \`${youTubeURL}\` to "${videoTitle}".`, true);
             playlistInfo[guild].playlist[newPlaylistLength - 1].title = videoTitle;
         });
     } else if (args[0]) {
@@ -265,6 +272,14 @@ function formatAvailableSoundIDs(msg) {
 }
 
 function handleSbvCommand(msg, args) {
+    let msgSenderVoiceChannel = msg.member.voice.channel;
+
+    if (!msgSenderVoiceChannel) {
+        errorMessage = "Join a voice channel first.";
+        handleErrorMessage(msg, handleSbvCommand.name, errorMessage);
+        return;
+    }
+
     refreshSoundboardData();
     maybeSetupGuildPlaylist(msg);
 
@@ -300,7 +315,7 @@ function handleSbvCommand(msg, args) {
 function getBotCurrentVoiceChannelInGuild(msg) {
     let guild = bot.guilds.resolve(msg.guild);
     if (!guild.available) {
-        handleErrorMessage(msg, getBotCurrentVoiceChannelInGuild.name, "Guild unavailable.");
+        handleErrorMessage(msg, getBotCurrentVoiceChannelInGuild.name, "Guild unavailable.", true);
         return false;
     }
 
@@ -320,7 +335,7 @@ function handleStreamFinished(msg, playLeaveSoundBeforeLeaving) {
 
 var streamDispatchers = {};
 function playSoundFromURL(msg, URL) {
-    handleStatusMessage(msg, playSoundFromURL.name, `Attempting to play sound with URL \`${URL}\`...`);
+    handleStatusMessage(msg, playSoundFromURL.name, `Attempting to play sound with URL \`${URL}\`...`, true);
 
     let msgSenderVoiceChannel = msg.member.voice.channel;
     let voiceConnection = voiceConnections[msgSenderVoiceChannel.id];
@@ -329,7 +344,7 @@ function playSoundFromURL(msg, URL) {
     } else if (!voiceConnection) {
         handleErrorMessage(msg, playSoundFromURL.name, "The bot somehow doesn't have a voice connection in this server.");
     } else if (URL.indexOf("youtube.com") > -1) {
-        handleStatusMessage(msg, playSoundFromURL.name, `Asking \`ytdl\` nicely to play audio from \`${URL}\`...`);
+        handleStatusMessage(msg, playSoundFromURL.name, `Asking \`ytdl\` nicely to play audio from \`${URL}\`...`, true);
         streamDispatchers[msgSenderVoiceChannel] = voiceConnection.play(ytdl(URL, {
             'quality': 'highestaudio',
             'volume': playlistInfo[msg.guild].volume || 1.0,
@@ -339,32 +354,32 @@ function playSoundFromURL(msg, URL) {
         });
         streamDispatchers[msgSenderVoiceChannel].on('close', () => {
             streamDispatchers[msgSenderVoiceChannel].removeAllListeners('close');
-            handleStatusMessage(msg, "StreamDispatcher on 'close'", "The `StreamDispatcher` emitted a `close` event.");
+            handleStatusMessage(msg, "StreamDispatcher on 'close'", "The `StreamDispatcher` emitted a `close` event.", true);
         });
         streamDispatchers[msgSenderVoiceChannel].on('finish', (reason) => {
             streamDispatchers[msgSenderVoiceChannel].removeAllListeners('finish');
             if (reason) {
-                handleStatusMessage(msg, "StreamDispatcher on 'finish'", `The \`StreamDispatcher\` emitted a \`finish\` event with reason "${reason || "<No Reason>"}".`);
+                handleStatusMessage(msg, "StreamDispatcher on 'finish'", `The \`StreamDispatcher\` emitted a \`finish\` event with reason "${reason || "<No Reason>"}".`, true);
             }
             handleStreamFinished(msg, true);
         });
         streamDispatchers[msgSenderVoiceChannel].on('error', (err) => {
             streamDispatchers[msgSenderVoiceChannel].removeAllListeners('error');
-            handleErrorMessage(msg, "StreamDispatcher on 'error'", `The \`StreamDispatcher\` emitted an \`error\` event. Error: ${err}`);
+            handleErrorMessage(msg, "StreamDispatcher on 'error'", `The \`StreamDispatcher\` emitted an \`error\` event. Error: ${err}`, true);
         });
     } else if (fs.existsSync(URL)) {
-        handleStatusMessage(msg, playSoundFromURL.name, `Playing \`${URL}\` from filesystem...`);
+        handleStatusMessage(msg, playSoundFromURL.name, `Playing \`${URL}\` from filesystem...`, true);
         streamDispatchers[msgSenderVoiceChannel] = voiceConnection.play(URL, {
             "bitrate": "auto"
         });
         streamDispatchers[msgSenderVoiceChannel].on('close', () => {
             streamDispatchers[msgSenderVoiceChannel].removeAllListeners('close');
-            handleStatusMessage(msg, "StreamDispatcher on 'close'", "The `StreamDispatcher` emitted a `close` event.");
+            handleStatusMessage(msg, "StreamDispatcher on 'close'", "The `StreamDispatcher` emitted a `close` event.", true);
         });
         streamDispatchers[msgSenderVoiceChannel].on('finish', (reason) => {
             streamDispatchers[msgSenderVoiceChannel].removeAllListeners('finish');
             if (reason) {
-                handleStatusMessage(msg, "StreamDispatcher on 'finish'", `The \`StreamDispatcher\` emitted a \`finish\` event with reason "${reason || "<No Reason>"}".`);
+                handleStatusMessage(msg, "StreamDispatcher on 'finish'", `The \`StreamDispatcher\` emitted a \`finish\` event with reason "${reason || "<No Reason>"}".`, true);
             }
             for (let i = playlistInfo[msg.guild].playlist.length - 1; i >= 0; i--) {
                 if (playlistInfo[msg.guild].playlist[i].URL === URL) {
@@ -377,7 +392,7 @@ function playSoundFromURL(msg, URL) {
         });
         streamDispatchers[msgSenderVoiceChannel].on('error', (err) => {
             streamDispatchers[msgSenderVoiceChannel].removeAllListeners('error');
-            handleErrorMessage(msg, "StreamDispatcher on 'error'", `The \`StreamDispatcher\` emitted an \`error\` event. Error: ${err}`);
+            handleErrorMessage(msg, "StreamDispatcher on 'error'", `The \`StreamDispatcher\` emitted an \`error\` event. Error: ${err}`, true);
         });
     } else {
         errorMessage = `I don't know how to play the URL \`${URL}\`.`;
@@ -398,7 +413,7 @@ function joinVoiceThenPlaySoundFromURL(msg, URL) {
     } else if (!botCurrentVoiceChannelInGuild || (botCurrentVoiceChannelInGuild !== msgSenderVoiceChannel)) {
         msgSenderVoiceChannel.join()
             .then((connection) => {
-                handleSuccessMessage(msg, joinVoiceThenPlaySoundFromURL.name, "I joined your voice channel successfully!");
+                handleSuccessMessage(msg, joinVoiceThenPlaySoundFromURL.name, "I joined your voice channel successfully!", true);
                 voiceConnections[msgSenderVoiceChannel.id] = connection;
                 playSoundFromURL(msg, URL);
             })
@@ -417,9 +432,11 @@ function joinVoiceThenPlaySoundFromURL(msg, URL) {
     }
 }
 
-function handleErrorMessage(msg, functionName, errorMessage) {
+function handleErrorMessage(msg, functionName, errorMessage, suppressChannelMessage) {
     console.error(`Error in \`${functionName}()\` for Guild \`${msg.guild}\`:\n${errorMessage}\n`);
-    msg.channel.send(errorMessage);
+    if (!suppressChannelMessage) {
+        msg.channel.send(errorMessage);
+    }
 }
 
 function handleSuccessMessage(msg, functionName, successMessage, suppressChannelMessage) {
@@ -429,9 +446,11 @@ function handleSuccessMessage(msg, functionName, successMessage, suppressChannel
     }
 }
 
-function handleStatusMessage(msg, functionName, statusMessage) {
+function handleStatusMessage(msg, functionName, statusMessage, suppressChannelMessage) {
     console.log(`Status in \`${functionName}()\` for Guild \`${msg.guild}\`:\n${statusMessage}\n`);
-    msg.channel.send(statusMessage);
+    if (!suppressChannelMessage) {
+        msg.channel.send(statusMessage);
+    }
 }
 
 function pushPlaylistEndingSoundThenPlayThenLeave(msg) {
@@ -493,12 +512,12 @@ function handleStopCommand(msg, args, playLeaveSoundBeforeLeaving) {
         botCurrentVoiceChannelInGuild.leave();
         retval.didLeave = true;
     } else if (botCurrentVoiceChannelInGuild && playlistInfo[guild] && voiceConnections[msgSenderVoiceChannel.id] && !playLeaveSoundBeforeLeaving) {
-        handleSuccessMessage(msg, handleStopCommand.name, "Resetting Current Playlist Index and leaving voice channel.");
+        handleSuccessMessage(msg, handleStopCommand.name, "Resetting Current Playlist Index and leaving voice channel.", true);
         playlistInfo[guild].currentPlaylistIndex = -1;
         voiceConnections[msgSenderVoiceChannel.id].disconnect();
         voiceConnections[msgSenderVoiceChannel.id] = null;
     } else if (botCurrentVoiceChannelInGuild && playlistInfo[guild] && voiceConnections[msgSenderVoiceChannel.id] && playLeaveSoundBeforeLeaving) {
-        handleSuccessMessage(msg, handleStopCommand.name, "Resetting Current Playlist Index and leaving voice channel after a short sound clip...");
+        handleSuccessMessage(msg, handleStopCommand.name, "Resetting Current Playlist Index and leaving voice channel after a short sound clip...", true);
         pushPlaylistEndingSoundThenPlayThenLeave(msg);
     } else if (botCurrentVoiceChannelInGuild && playlistInfo[guild] && !voiceConnections[msgSenderVoiceChannel.id]) {
         handleSuccessMessage(msg, handleStopCommand.name, "I'm in a voice channel, but I don't have a Voice Connection. I'm going to reset the Current Playlist Index and attempt to leave. If I don't leave the voice channel, please remove me manually.");
@@ -527,7 +546,7 @@ function changeSoundBasedOnCurrentPlaylistIndex(msg) {
         handleErrorMessage(msg, changeSoundBasedOnCurrentPlaylistIndex.name, errorMessage);
     } else if (playlistInfo[guild].playlist && soundToPlay) {
         successMessage = `Attempting to play Sound: \`${soundToPlay}\``;
-        handleSuccessMessage(msg, changeSoundBasedOnCurrentPlaylistIndex.name, successMessage);
+        handleSuccessMessage(msg, changeSoundBasedOnCurrentPlaylistIndex.name, successMessage, true);
         joinVoiceThenPlaySoundFromURL(msg, soundToPlay);
     } else {
         errorMessage = "Unhandled state.";
@@ -550,7 +569,7 @@ function handlePlaylistNext(msg, playLeaveSoundBeforeLeaving) {
         handleSuccessMessage(msg, handlePlaylistNext.name, successMessage);
         playlistInfo[guild].currentPlaylistIndex++;
         changeSoundBasedOnCurrentPlaylistIndex(msg);
-    } else if (playlistInfo[guild] && playlistInfo[guild].currentPlaylistIndex >= (playlistInfo[guild].playlist.length - 1) && playlistInfo[guild].repeatMode !== "all") {
+    } else if (playlistInfo[guild] && playlistInfo[guild].currentPlaylistIndex >= (playlistInfo[guild].playlist.length - 1) && (playlistInfo[guild].repeatMode !== "all" || playlistInfo[guild].playlist.length === 0)) {
         successMessage = "There are no more Sounds in the Sound Playlist. Stopping playback...";
         handleSuccessMessage(msg, handlePlaylistNext.name, successMessage);
         handleStopCommand(msg, null, playLeaveSoundBeforeLeaving);
@@ -606,7 +625,7 @@ const possibleRepeatModes = ["none", "one", "all"];
 function handlePlaylistChangeRepeatMode(msg, newRepeatMode) {
     let guild = msg.guild;
 
-    if (!possibleRepeatModes.contains(newRepeatMode)) {
+    if (!possibleRepeatModes.indexOf(newRepeatMode) === -1) {
         handleErrorMessage(msg, handlePlaylistChangeRepeatMode.name, 'Unhandled repeat mode.');
     } else if (playlistInfo[guild]) {
         playlistInfo[guild].repeatMode = newRepeatMode;
