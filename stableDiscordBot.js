@@ -324,7 +324,9 @@ function playSoundFromURL(msg, URL) {
 
     let msgSenderVoiceChannel = msg.member.voice.channel;
     let voiceConnection = voiceConnections[msgSenderVoiceChannel.id];
-    if (!voiceConnection) {
+    if (!msgSenderVoiceChannel) {
+        handleErrorMessage(msg, playSoundFromURL.name, "It's rude for you to try to change playback while you're not in a voice channel. >:(");
+    } else if (!voiceConnection) {
         handleErrorMessage(msg, playSoundFromURL.name, "The bot somehow doesn't have a voice connection in this server.");
     } else if (URL.indexOf("youtube.com") > -1) {
         handleStatusMessage(msg, playSoundFromURL.name, `Asking \`ytdl\` nicely to play audio from \`${URL}\`...`);
@@ -447,7 +449,9 @@ function pushPlaylistEndingSoundThenPlayThenLeave(msg) {
     let randomEndingSoundPath = randomEndingSoundFolder + randomEndingSoundFilename;
     let readStream = fs.createReadStream(randomEndingSoundPath);
 
-    if (!voiceConnections[msgSenderVoiceChannel.id]) {
+    if (!msgSenderVoiceChannel) {
+        // No-op.
+    } else if (!voiceConnections[msgSenderVoiceChannel.id]) {
         handleErrorMessage(msg, pushPlaylistEndingSoundThenPlayThenLeave.name, "No voice connection!");
     } else if (streamDispatchers[msgSenderVoiceChannel]) {
         streamDispatchers[msgSenderVoiceChannel] = voiceConnection.play(readStream, {
@@ -477,7 +481,9 @@ function handleStopCommand(msg, args, playLeaveSoundBeforeLeaving) {
         "didLeave": false
     };
 
-    if (!botCurrentVoiceChannelInGuild && playlistInfo[guild]) {
+    if (!msgSenderVoiceChannel) {
+        handleErrorMessage(msg, handleStopCommand.name, "It's rude for you to try to change playback while you're not in a voice channel. >:(");
+    } else if (!botCurrentVoiceChannelInGuild && playlistInfo[guild]) {
         handleStatusMessage(msg, handleStopCommand.name, "I'm not in a voice channel, so I can't stop anything. I'll still reset the Current Playlist Index, though.");
         playlistInfo[guild].currentPlaylistIndex = -1;
     } else if (!botCurrentVoiceChannelInGuild && !playlistInfo[guild]) {
@@ -718,7 +724,9 @@ function handlePlaylistCommand(msg, args) {
 
 function handlePlayCommand(msg, args) {
     let msgSenderVoiceChannel = msg.member.voice.channel;
-    if (streamDispatchers[msgSenderVoiceChannel] && streamDispatchers[msgSenderVoiceChannel].paused) {
+    if (!msgSenderVoiceChannel) {
+        handleErrorMessage(msg, handlePlayCommand.name, "It's rude for you to try to change playback while you're not in a voice channel. >:(");
+    } else if (streamDispatchers[msgSenderVoiceChannel] && streamDispatchers[msgSenderVoiceChannel].paused) {
         streamDispatchers[msgSenderVoiceChannel].resume();
     } else {
         changeSoundBasedOnCurrentPlaylistIndex(msg);
@@ -727,7 +735,9 @@ function handlePlayCommand(msg, args) {
 
 function handlePauseCommand(msg, args) {
     let msgSenderVoiceChannel = msg.member.voice.channel;
-    if (!streamDispatchers[msgSenderVoiceChannel]) {
+    if (!msgSenderVoiceChannel) {
+        handleErrorMessage(msg, handlePauseCommand.name, "It's rude for you to try to change playback while you're not in a voice channel. >:(");
+    } else if (!streamDispatchers[msgSenderVoiceChannel]) {
         handleStatusMessage(msg, handlePauseCommand.name, "Nothing to pause, captain.");
     } else if (streamDispatchers[msgSenderVoiceChannel]) {
         streamDispatchers[msgSenderVoiceChannel].pause();
@@ -745,6 +755,11 @@ function handleLeaveCommand(msg, args) {
 
 function handleVolumeCommand(msg, args) {
     let msgSenderVoiceChannel = msg.member.voice.channel;
+
+    if (!msgSenderVoiceChannel) {
+        handleErrorMessage(msg, handleVolumeCommand.name, "It's rude for you to try to change playback while you're not in a voice channel. >:(");
+        return;
+    }
 
     if (args[0] && playlistInfo[msg.guild]) {
         playlistInfo[msg.guild].volume = args[0];
