@@ -1,4 +1,4 @@
-# sounds Folder
+# `sounds` Folder
 In this folder, make one subfolder for the author of each sound. Then, place MP3 files in that folder.
 
 For example, you might have a structure like this here:
