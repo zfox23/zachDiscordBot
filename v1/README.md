@@ -1,3 +1,5 @@
+**This version of my Discord bot is no longer under active development.**
+
 # zachDiscordBot
 A Discord bot that I use on my Discord server.
 
