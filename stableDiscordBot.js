@@ -66,7 +66,7 @@ bot.on('ready', () => {
     prepareSQLite();
     console.log("Prepared!");
 
-    console.log(`Bot online. I'm Clamster! The clam with the pain.\nActually though I'm \`${bot.user.tag}\`.`);
+    console.log(`Bot online. I'm Clamster! The clam with the pain.\nActually though I'm \`${bot.user.tag}\`.\n`);
 });
 
 function showCommandUsage(msg, command, optionalArg) {
@@ -230,6 +230,73 @@ function handleYouTubeCommand(msg, args) {
     }
 }
 
+const soundSpeakersFolder = "./sounds/";
+var soundboardData = {};
+function refreshSoundboardData() {
+    soundboardData = {};
+    let soundSpeakersSubfolders = fs.readdirSync(soundSpeakersFolder);
+    for (let i = 0; i < soundSpeakersSubfolders.length; i++) {
+        let currentSpeaker = soundSpeakersSubfolders[i];
+
+        if (currentSpeaker === "README.md" || currentSpeaker.indexOf("sounds.sqlite") > -1) {
+            continue;
+        }
+
+        let soundIDs = fs.readdirSync(soundSpeakersFolder + currentSpeaker);
+        for (let j = 0; j < soundIDs.length; j++) {
+            let soundID = soundIDs[j].slice(0, -4);
+
+            if (!soundboardData[soundID]) {
+                soundboardData[soundID] = [];
+            }
+
+            soundboardData[soundID].push(currentSpeaker);
+        }
+    }
+}
+
+function formatAvailableSoundIDs(msg) {
+    refreshSoundboardData();
+    let availableSoundIDsList = Object.keys(soundboardData).join(", ");
+    if (availableSoundIDsList.length > 1500) {
+        availableSoundIDsList = "There's too many Sound IDs to display! Here's some:\n" + availableSoundIDsList.substring(0, 1500) + "...";
+    }
+    return availableSoundIDsList;
+}
+
+function handleSbvCommand(msg, args) {
+    refreshSoundboardData();
+    maybeSetupGuildPlaylist(msg);
+
+    let soundID = args[0];
+    let person = args[1];
+
+    if (soundID && !soundboardData[soundID]) {
+        handleErrorMessage(msg, handleSbvCommand.name, "Invalid Sound ID.");
+    } else if (soundID && soundboardData[soundID] && person && soundboardData[soundID].contains(person)) {
+        handleSuccessMessage(msg, handleSbvCommand.name, `Adding "${soundID}" by ${person} to Sounds Playlist...`);
+        playlistInfo[msg.guild].playlist.push({
+            "URL": `${soundSpeakersFolder}${person}/${soundID}.mp3`,
+            "title": soundID
+        });
+        onSoundsPlaylistAddedTo(msg);
+    } else if (soundID && soundboardData[soundID] && person && !soundboardData[soundID].contains(person)) {
+        handleErrorMessage(msg, handleSbvCommand.name, "That person didn't say that sound!");
+    } else if (soundID && soundboardData[soundID] && !person) {
+        person = soundboardData[soundID][Math.floor(Math.random() * soundboardData[soundID].length)];
+        handleSuccessMessage(msg, handleSbvCommand.name, `Adding "${soundID}" by ${person} to Sounds Playlist...`);
+        playlistInfo[msg.guild].playlist.push({
+            "URL": `${soundSpeakersFolder}${person}/${soundID}.mp3`,
+            "title": soundID
+        });
+        onSoundsPlaylistAddedTo(msg);
+    } else if (!soundID && !person) {
+        showCommandUsage(msg, "handleSbvCommand");
+    } else {
+        handleErrorMessage(msg, handleSbvCommand.name, "Unhandled case.");
+    }
+}
+
 function getBotCurrentVoiceChannelInGuild(msg) {
     let guild = bot.guilds.resolve(msg.guild);
     if (!guild.available) {
@@ -240,9 +307,9 @@ function getBotCurrentVoiceChannelInGuild(msg) {
     return guild.voice && guild.voice.channel;
 }
 
-function handleStreamFinished(msg) {
+function handleStreamFinished(msg, playLeaveSoundBeforeLeaving) {
     if (!playlistInfo[msg.guild] || playlistInfo[msg.guild].repeatMode !== "one") {
-        handlePlaylistNext(msg);
+        handlePlaylistNext(msg, playLeaveSoundBeforeLeaving);
     } else if (playlistInfo[msg.guild] && playlistInfo[msg.guild].currentPlaylistIndex && playlistInfo[msg.guild].repeatMode === "one") {
         playlistInfo[msg.guild].currentPlaylistIndex--;
         handlePlaylistNext(msg);
@@ -253,11 +320,13 @@ function handleStreamFinished(msg) {
 
 var streamDispatchers = {};
 function playSoundFromURL(msg, URL) {
+    handleStatusMessage(msg, playSoundFromURL.name, `Attempting to play sound with URL \`${URL}\`...`);
+
     let msgSenderVoiceChannel = msg.member.voice.channel;
     let voiceConnection = voiceConnections[msgSenderVoiceChannel.id];
     if (!voiceConnection) {
         handleErrorMessage(msg, playSoundFromURL.name, "The bot somehow doesn't have a voice connection in this server.");
-    } else if (URL.indexOf("youtube.com" > -1)) {
+    } else if (URL.indexOf("youtube.com") > -1) {
         handleStatusMessage(msg, playSoundFromURL.name, `Asking \`ytdl\` nicely to play audio from \`${URL}\`...`);
         streamDispatchers[msgSenderVoiceChannel] = voiceConnection.play(ytdl(URL, {
             'quality': 'highestaudio',
@@ -275,14 +344,41 @@ function playSoundFromURL(msg, URL) {
             if (reason) {
                 handleStatusMessage(msg, "StreamDispatcher on 'finish'", `The \`StreamDispatcher\` emitted a \`finish\` event with reason "${reason || "<No Reason>"}".`);
             }
-            handleStreamFinished(msg);
+            handleStreamFinished(msg, true);
+        });
+        streamDispatchers[msgSenderVoiceChannel].on('error', (err) => {
+            streamDispatchers[msgSenderVoiceChannel].removeAllListeners('error');
+            handleErrorMessage(msg, "StreamDispatcher on 'error'", `The \`StreamDispatcher\` emitted an \`error\` event. Error: ${err}`);
+        });
+    } else if (fs.existsSync(URL)) {
+        handleStatusMessage(msg, playSoundFromURL.name, `Playing \`${URL}\` from filesystem...`);
+        streamDispatchers[msgSenderVoiceChannel] = voiceConnection.play(URL, {
+            "bitrate": "auto"
+        });
+        streamDispatchers[msgSenderVoiceChannel].on('close', () => {
+            streamDispatchers[msgSenderVoiceChannel].removeAllListeners('close');
+            handleStatusMessage(msg, "StreamDispatcher on 'close'", "The `StreamDispatcher` emitted a `close` event.");
+        });
+        streamDispatchers[msgSenderVoiceChannel].on('finish', (reason) => {
+            streamDispatchers[msgSenderVoiceChannel].removeAllListeners('finish');
+            if (reason) {
+                handleStatusMessage(msg, "StreamDispatcher on 'finish'", `The \`StreamDispatcher\` emitted a \`finish\` event with reason "${reason || "<No Reason>"}".`);
+            }
+            for (let i = playlistInfo[msg.guild].playlist.length - 1; i >= 0; i--) {
+                if (playlistInfo[msg.guild].playlist[i].URL === URL) {
+                    playlistInfo[msg.guild].playlist.splice(i, 1);
+                    playlistInfo[msg.guild].currentPlaylistIndex--;
+                    break;
+                }
+            }
+            handleStreamFinished(msg, false);
         });
         streamDispatchers[msgSenderVoiceChannel].on('error', (err) => {
             streamDispatchers[msgSenderVoiceChannel].removeAllListeners('error');
             handleErrorMessage(msg, "StreamDispatcher on 'error'", `The \`StreamDispatcher\` emitted an \`error\` event. Error: ${err}`);
         });
     } else {
-        errorMessage = `I don't know how to play anything but audio from YouTube URLs yet, and ${URL} isn't a YouTube URL.`;
+        errorMessage = `I don't know how to play the URL \`${URL}\`.`;
         handleErrorMessage(msg, playSoundFromURL.name, errorMessage);
     }
 }
@@ -300,12 +396,12 @@ function joinVoiceThenPlaySoundFromURL(msg, URL) {
     } else if (!botCurrentVoiceChannelInGuild || (botCurrentVoiceChannelInGuild !== msgSenderVoiceChannel)) {
         msgSenderVoiceChannel.join()
             .then((connection) => {
-                handleSuccessMessage(msg, joinVoiceThenPlaySoundFromURL.name, "I joined your voice channel successfully! Attempting to play Sound...");
+                handleSuccessMessage(msg, joinVoiceThenPlaySoundFromURL.name, "I joined your voice channel successfully!");
                 voiceConnections[msgSenderVoiceChannel.id] = connection;
                 playSoundFromURL(msg, URL);
             })
             .catch((error) => {
-                errorMessage = "The bot ran into an error when joining your voice channel.";
+                errorMessage = `The bot ran into an error when joining your voice channel: ${error}`;
                 handleErrorMessage(msg, joinVoiceThenPlaySoundFromURL.name, errorMessage);
             });
     } else if (botCurrentVoiceChannelInGuild && (botCurrentVoiceChannelInGuild === msgSenderVoiceChannel) && !voiceConnections[msgSenderVoiceChannel.id]) {
@@ -433,7 +529,7 @@ function changeSoundBasedOnCurrentPlaylistIndex(msg) {
     }
 }
 
-function handlePlaylistNext(msg) {
+function handlePlaylistNext(msg, playLeaveSoundBeforeLeaving) {
     let guild = msg.guild;
     let successMessage, errorMessage;
     if (!playlistInfo[guild] || !playlistInfo[guild].playlist) {
@@ -451,7 +547,7 @@ function handlePlaylistNext(msg) {
     } else if (playlistInfo[guild] && playlistInfo[guild].currentPlaylistIndex >= (playlistInfo[guild].playlist.length - 1) && playlistInfo[guild].repeatMode !== "all") {
         successMessage = "There are no more Sounds in the Sound Playlist. Stopping playback...";
         handleSuccessMessage(msg, handlePlaylistNext.name, successMessage);
-        handleStopCommand(msg, null, true);
+        handleStopCommand(msg, null, playLeaveSoundBeforeLeaving);
     } else if (playlistInfo[guild] && playlistInfo[guild].currentPlaylistIndex >= (playlistInfo[guild].playlist.length - 1) && playlistInfo[guild].repeatMode === "all") {
         successMessage = `The Playlist's repeat mode is "all". That was the end of the playlist. Starting the playlist over...`;
         handleSuccessMessage(msg, handlePlaylistNext.name, successMessage);
@@ -574,6 +670,24 @@ function handlePlaylistList(msg) {
     }
 }
 
+function handlePlaylistGoto(msg, args) {
+    let guild = msg.guild;
+    let indexToGoTo = parseInt(args[1]);
+
+    if (isNaN(indexToGoTo)) {
+        handleErrorMessage(msg, handlePlaylistGoto.name, "Invalid index specified.");
+    } else if (!playlistInfo[guild] || !playlistInfo[guild].playlist || playlistInfo[guild].playlist.length === 0) {
+        handleErrorMessage(msg, handlePlaylistGoto.name, "There's no playlist here.");
+    } else if (indexToGoTo < 0 || indexToGoTo > playlistInfo[guild].playlist.length - 1) {
+        handleErrorMessage(msg, handlePlaylistGoto.name, "Specified index out of range.");
+    } else if (playlistInfo[guild].playlist && playlistInfo[guild].playlist.length > 0 && !isNaN(indexToGoTo) && indexToGoTo >= 0 && indexToGoTo <= playlistInfo[guild].playlist.length - 1) {
+        playlistInfo[guild].currentPlaylistIndex = indexToGoTo;
+        changeSoundBasedOnCurrentPlaylistIndex(msg);
+    } else {
+        handleErrorMessage(msg, handlePlaylistGoto.name, 'Unhandled state.');
+    }
+}
+
 function handlePlaylistCommand(msg, args) {
     if (args[0] && args[0] === "next") {
         handlePlaylistNext(msg);
@@ -591,6 +705,8 @@ function handlePlaylistCommand(msg, args) {
         handleDeleteFromPlaylist(msg, args[1]);
     } else if (args[0] && args[0] === "list") {
         handlePlaylistList(msg);
+    } else if (args[0] && args[0] === "goto" && args[1]) {
+        handlePlaylistGoto(msg, args);
     } else if (args[0] && args[0] === "list" && args[1] && args[1] === "save") {
         handleErrorMessage(msg, handlePlaylistCommand, `Wow, you actually wanted to save a playlist? My developer hasn't implemented this yet because nobody uses it. Message him and maybe he'll get this working again.`);
     } else if (args[0] && args[0] === "list" && args[1] && args[1] === "load") {
@@ -842,7 +958,7 @@ function handleQuoteCommand(msg, args) {
 const commandInvocationCharacter = "!";
 const commandDictionary = {
     'y': {
-        'description': 'Plays YouTube Audio.',
+        'description': 'Adds audio from a YouTube video to the Sounds Playlist.',
         'argCombos': [
             {
                 'argCombo': 'Link to YouTube video',
@@ -854,6 +970,21 @@ const commandDictionary = {
             }
         ],
         'handler': handleYouTubeCommand
+    },
+    'sbv': {
+        'description': "Adds audio from the soundboard to the Sounds Playlist.",
+        'argCombos': [
+            {
+                'argCombo': "Sound ID",
+                "description": "Adds the audio associated with the Sound ID to the Sounds Playlist.",
+                'handler': formatAvailableSoundIDs
+            },
+            {
+                'argCombo': "Sound ID <Person>",
+                "description": "Adds the audio associated with the Sound ID and the person to the Sounds Playlist. If you don't specify a person and there are two sounds with the same ID, the bot will pick between those people randomly."
+            }
+        ],
+        'handler': handleSbvCommand
     },
     'p': {
         'description': 'Gets or modifies the Sounds Playlist.',
@@ -889,6 +1020,10 @@ const commandDictionary = {
             {
                 'argCombo': 'list',
                 'description': 'List all of the Sounds currently in the Sounds Playlist.'
+            },
+            {
+                'argCombo': 'goto <index to skip to>',
+                'description': "Skips Sound Playlist playback directly to the specified index."
             },
             {
                 'argCombo': 'list save <name of playlist>',
@@ -1178,7 +1313,7 @@ bot.on('messageReactionAdd', (reaction, user) => {
                                     fullmessage,
                                     message.id)
                                 ) - 1;
-            
+
                                 updateEndQuoteMessage(reaction.message.channel, activeQuoteObjects[currentActiveQuoteIndex]);
                             })
                     } else {
@@ -1189,7 +1324,7 @@ bot.on('messageReactionAdd', (reaction, user) => {
                             reaction.message,
                             message.id)
                         ) - 1;
-    
+
                         updateEndQuoteMessage(reaction.message.channel, activeQuoteObjects[currentActiveQuoteIndex]);
                     }
                 });
