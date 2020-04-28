@@ -153,10 +153,11 @@ function handleYouTubeSearchThenAdd(msg, args) {
 
         playlistInfo[msg.guild].playlist.push({
             "title": videoTitle,
-            "URL": fullUrl
+            "URL": fullUrl,
+            "addedBy": msg.author.username
         });
 
-        handleStatusMessage(msg, handleYouTubeCommand.name, `Adding "${videoTitle}" from \`${fullUrl}\` to the Sounds Playlist.`);
+        handleStatusMessage(msg, handleYouTubeCommand.name, `Adding "${videoTitle}" from ${fullUrl} to the Sounds Playlist.`);
 
         onSoundsPlaylistAddedTo(msg);
     });
@@ -222,7 +223,8 @@ function handleYouTubeCommand(msg, args) {
         handleStatusMessage(msg, handleYouTubeCommand.name, `Adding \`${youTubeURL}\` to the Sounds Playlist.`);
 
         let newPlaylistLength = playlistInfo[guild].playlist.push({
-            "URL": youTubeURL
+            "URL": youTubeURL,
+            "addedBy": msg.author.username
         });
         onSoundsPlaylistAddedTo(msg);
 
@@ -694,7 +696,15 @@ function handlePlaylistList(msg) {
             if (!currentDisplayTitle) {
                 currentDisplayTitle = playlistInfo[guild].playlist[i].URL;
             }
-            playlistString += `${i}. ${currentDisplayTitle}\n`;
+
+            playlistString += `${i}. ${currentDisplayTitle}`;
+
+            let addedBy = playlistInfo[guild].playlist[i].addedBy;
+            if (addedBy) {
+                playlistString += ` - Added by ${addedBy}`;
+            }
+
+            playlistString += `\n`;
         }
         playlistString += "```\n";
 
