@@ -353,10 +353,12 @@ function playSoundFromURL(msg, URL) {
             "bitrate": "auto"
         });
         streamDispatchers[msgSenderVoiceChannel].on('close', () => {
+            handleVolumeCommand(msg, [1.0]);
             streamDispatchers[msgSenderVoiceChannel].removeAllListeners('close');
             handleStatusMessage(msg, "StreamDispatcher on 'close'", "The `StreamDispatcher` emitted a `close` event.", true);
         });
         streamDispatchers[msgSenderVoiceChannel].on('finish', (reason) => {
+            handleVolumeCommand(msg, [1.0]);
             streamDispatchers[msgSenderVoiceChannel].removeAllListeners('finish');
             if (reason) {
                 handleStatusMessage(msg, "StreamDispatcher on 'finish'", `The \`StreamDispatcher\` emitted a \`finish\` event with reason "${reason || "<No Reason>"}".`, true);
@@ -364,6 +366,7 @@ function playSoundFromURL(msg, URL) {
             handleStreamFinished(msg, true);
         });
         streamDispatchers[msgSenderVoiceChannel].on('error', (err) => {
+            handleVolumeCommand(msg, [1.0]);
             streamDispatchers[msgSenderVoiceChannel].removeAllListeners('error');
             handleErrorMessage(msg, "StreamDispatcher on 'error'", `The \`StreamDispatcher\` emitted an \`error\` event. Error: ${err}`, true);
         });
@@ -373,10 +376,12 @@ function playSoundFromURL(msg, URL) {
             "bitrate": "auto"
         });
         streamDispatchers[msgSenderVoiceChannel].on('close', () => {
+            handleVolumeCommand(msg, [1.0]);
             streamDispatchers[msgSenderVoiceChannel].removeAllListeners('close');
             handleStatusMessage(msg, "StreamDispatcher on 'close'", "The `StreamDispatcher` emitted a `close` event.", true);
         });
         streamDispatchers[msgSenderVoiceChannel].on('finish', (reason) => {
+            handleVolumeCommand(msg, [1.0]);
             streamDispatchers[msgSenderVoiceChannel].removeAllListeners('finish');
             if (reason) {
                 handleStatusMessage(msg, "StreamDispatcher on 'finish'", `The \`StreamDispatcher\` emitted a \`finish\` event with reason "${reason || "<No Reason>"}".`, true);
@@ -391,6 +396,7 @@ function playSoundFromURL(msg, URL) {
             handleStreamFinished(msg, false);
         });
         streamDispatchers[msgSenderVoiceChannel].on('error', (err) => {
+            handleVolumeCommand(msg, [1.0]);
             streamDispatchers[msgSenderVoiceChannel].removeAllListeners('error');
             handleErrorMessage(msg, "StreamDispatcher on 'error'", `The \`StreamDispatcher\` emitted an \`error\` event. Error: ${err}`, true);
         });
@@ -477,13 +483,16 @@ function pushPlaylistEndingSoundThenPlayThenLeave(msg) {
             "volume": 1.0
         });
         streamDispatchers[msgSenderVoiceChannel].on('close', () => {
+            handleVolumeCommand(msg, [1.0]);
             streamDispatchers[msgSenderVoiceChannel].removeAllListeners('close');
         });
         streamDispatchers[msgSenderVoiceChannel].on('finish', (reason) => {
+            handleVolumeCommand(msg, [1.0]);
             streamDispatchers[msgSenderVoiceChannel].removeAllListeners('finish');
             handleStopCommand(msg);
         });
         streamDispatchers[msgSenderVoiceChannel].on('error', (err) => {
+            handleVolumeCommand(msg, [1.0]);
             streamDispatchers[msgSenderVoiceChannel].removeAllListeners('error');
             handleErrorMessage(msg, "StreamDispatcher on 'error'", `The \`StreamDispatcher\` emitted an \`error\` event. Error: ${err}`);
         });
@@ -780,12 +789,20 @@ function handleVolumeCommand(msg, args) {
         return;
     }
 
-    if (args[0] && playlistInfo[msg.guild]) {
+    let volumeChanged = false;
+
+    if (args[0] && playlistInfo[msg.guild] && playlistInfo[msg.guild].volume !== args[0]) {
         playlistInfo[msg.guild].volume = args[0];
+        volumeChanged = true;
     } else if (args[0] && !playlistInfo[msg.guild]) {
         playlistInfo[msg.guild] = {
             "volume": args[0]
         };
+        volumeChanged = true;
+    }
+
+    if (volumeChanged) {
+        handleStatusMessage(msg, handleVolumeCommand.name, `Volume changed to \`${args[0]}\`.`)
     }
 
     if (args[0] && streamDispatchers[msgSenderVoiceChannel]) {
