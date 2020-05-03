@@ -801,10 +801,10 @@ function handleVolumeCommand(msg, args) {
 
     let volumeChanged = false;
 
-    if (args[0] && playlistInfo[msg.guild] && playlistInfo[msg.guild].volume !== args[0]) {
+    if (!isNaN(args[0]) && playlistInfo[msg.guild] && playlistInfo[msg.guild].volume !== args[0]) {
         playlistInfo[msg.guild].volume = args[0];
         volumeChanged = true;
-    } else if (args[0] && !playlistInfo[msg.guild]) {
+    } else if (!isNaN(args[0]) && !playlistInfo[msg.guild]) {
         playlistInfo[msg.guild] = {
             "volume": args[0]
         };
@@ -815,9 +815,9 @@ function handleVolumeCommand(msg, args) {
         handleStatusMessage(msg, handleVolumeCommand.name, `Volume changed to \`${args[0]}\`.`)
     }
 
-    if (args[0] && streamDispatchers[msgSenderVoiceChannel]) {
+    if (!isNaN(args[0]) && streamDispatchers[msgSenderVoiceChannel]) {
         streamDispatchers[msgSenderVoiceChannel].setVolume(playlistInfo[msg.guild].volume);
-    } else if (args[0] && !streamDispatchers[msgSenderVoiceChannel]) {
+    } else if (!isNaN(args[0]) && !streamDispatchers[msgSenderVoiceChannel]) {
         // No-op; logic handled by sets of conditionals above.
         // We want to set the volume for the current guild's playlist, and that volume
         // will get picked up the next time we start playing a Sound.
