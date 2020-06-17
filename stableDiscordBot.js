@@ -24,6 +24,7 @@ const moment = require('moment');
 const SQLite = require("better-sqlite3");
 
 const quotesSQL = new SQLite('./quotes/quotes.sqlite');
+const wikiSQL = new SQLite('./wiki/wiki.sqlite');
 
 function deleteTempFiles() {
     let directory = __dirname + '/temp';
@@ -49,12 +50,26 @@ function prepareSQLite() {
         quotesSQL.pragma("synchronous = 1");
         quotesSQL.pragma("journal_mode = wal");
     }
-
     // We have some prepared statements to get, set, and delete the quote data.
     bot.getQuote = quotesSQL.prepare("SELECT * FROM quotes WHERE guild = ? AND channel = ? AND id = ?;");
     bot.getRandomQuote = quotesSQL.prepare("SELECT * FROM quotes WHERE guild = ? AND channel = ? ORDER BY random() LIMIT 1;");
     bot.setQuote = quotesSQL.prepare("INSERT OR REPLACE INTO quotes (userWhoAdded, guild, channel, quote) VALUES (@userWhoAdded, @guild, @channel, @quote);");
     bot.deleteQuote = quotesSQL.prepare("DELETE FROM quotes WHERE guild = ? AND channel = ? AND id = ?;");
+
+    // Check if the table "wiki" exists.
+    const wikiTable = wikiSQL.prepare("SELECT count(*) FROM sqlite_master WHERE type='table' AND name = 'wiki';").get();
+    if (!wikiTable['count(*)']) {
+        // If the table isn't there, create it and setup the database correctly.
+        wikiSQL.prepare("CREATE TABLE wiki (id INTEGER PRIMARY KEY, created DATETIME DEFAULT CURRENT_TIMESTAMP, userWhoAdded TEXT, guild TEXT, topic TEXT, contents TEXT);").run();
+        // Ensure that the "id" row is always unique and indexed.
+        wikiSQL.prepare("CREATE UNIQUE INDEX idx_wiki_id ON wiki (id);").run();
+        wikiSQL.pragma("synchronous = 1");
+        wikiSQL.pragma("journal_mode = wal");
+    }
+    // We have some prepared statements to get, set, and delete the quote data.
+    bot.getWikiTopicContents = wikiSQL.prepare("SELECT * FROM wiki WHERE guild = ? AND topic = ? ORDER BY CURRENT_TIMESTAMP LIMIT 1;");
+    bot.setWikiTopicContents = wikiSQL.prepare("INSERT INTO wiki (guild, topic, contents) VALUES (@guild, @topic, @contents);");
+    bot.deleteWikiTopicContents = wikiSQL.prepare("DELETE FROM wiki WHERE guild = ? AND topic = ?;");
 }
 
 bot.on('ready', () => {
@@ -1016,6 +1031,39 @@ function handleQuoteCommand(msg, args) {
     }
 }
 
+// From https://www.w3resource.com/javascript-exercises/javascript-string-exercise-17.php
+function stringChop2000(str, size) {
+    if (str == null) {
+        return [];
+    }
+    str = String(str);
+    size = ~~size;
+    return size > 0 ? str.match(/[\s\S]{1,2000}/g) : [str];
+}
+
+function handleWikiCommand(msg, args) {
+    if (args[1] && (args[0] === "get")) {
+        let result = bot.getWikiTopicContents.get(msg.guild.id, args[1]);
+        if (result) {
+            let msgToSend = `Wiki Contents for Topic "${result.topic}":\n\n${result.contents}`;
+            let splitMsg = stringChop2000(msgToSend);
+            splitMsg.forEach((strToSend) => {
+                msg.channel.send(strToSend);
+            });
+        }
+    } else if (args[1] && (args[0] === "set")) {
+        let wikiTopic = {
+            guild: msg.guild.id,
+            topic: args[1],
+            contents: msg.content.substring("!wiki".length + args[0].length + args[1].length + 3, msg.content.length) // +3 to account for spaces.
+        };
+        let id = bot.setWikiTopicContents.run(wikiTopic).lastInsertRowid;
+        msg.channel.send(`In the Wiki for this server, I've set the contents of the topic "${args[1]}".`);
+    } else {
+        showCommandUsage(msg, "wiki");
+    }
+}
+
 const commandInvocationCharacter = "!";
 const commandDictionary = {
     'y': {
@@ -1167,7 +1215,7 @@ const commandDictionary = {
         'handler': handleRoleColorCommand
     },
     'quote': {
-        'description': "The entry point into a robust quote saving/loading system. To start saving a quote, add the '🔠' emoji to some text.",
+        'description': "The entry point into a robust quote saving/loading system. To start saving a quote, add the '🔠' emoji to some text. Quotes are persistent per server and channel combination.",
         'argCombos': [
             {
                 'argCombo': '',
@@ -1179,6 +1227,20 @@ const commandDictionary = {
             }
         ],
         'handler': handleQuoteCommand
+    },
+    'wiki': {
+        'description': `The entry point into a robust wiki-like system. Wiki entries are persistent for a given server.`,
+        'argCombos': [
+            {
+                'argCombo': 'get <topic>',
+                'description': 'Gets the contents of the specified topic and returns it to the channel where it was requested.'
+            },
+            {
+                'argCombo': 'set <topic> <contents>',
+                'description': 'Sets the contents of the specified topic to the specified contents. Older versions are preserved in the database _but are not accessible via the `wiki get` command_.'
+            },
+        ],
+        'handler': handleWikiCommand
     }
 };
 
@@ -1430,7 +1492,7 @@ bot.on('messageReactionAdd', (reaction, user) => {
                 guild: activeQuoteObjects[currentActiveQuoteIndex].quoteGuild,
                 channel: activeQuoteObjects[currentActiveQuoteIndex].quoteChannel,
                 quote: formattedQuote
-            }
+            };
             let id = bot.setQuote.run(quote).lastInsertRowid;
             reaction.message.channel.send("Quote added to database with ID " + id);
 

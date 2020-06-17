@@ -9,3 +9,5 @@ sounds/*
 !sounds/README.md
 temp/*
 !temp/README.md
+wiki/*
+!wiki/README.md
