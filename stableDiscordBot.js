@@ -1031,6 +1031,10 @@ function handleQuoteCommand(msg, args) {
     }
 }
 
+function handlePollCommand(msg, args) {
+    showCommandUsage(msg, "poll");
+}
+
 // From https://www.w3resource.com/javascript-exercises/javascript-string-exercise-17.php
 function stringChop2000(str, size) {
     if (str == null) {
@@ -1241,6 +1245,10 @@ const commandDictionary = {
             },
         ],
         'handler': handleWikiCommand
+    },
+    'poll': {
+        'description': `The entry point into a poll system. Useful for things like scheduling times for a group to play games. To start a new poll, add the '❓' emoji to a message containing your poll question, then follow the instructions.`,
+        'haldner': handlePollCommand
     }
 };
 
@@ -1335,7 +1343,7 @@ function formatQuote(quoteObject) {
         }
 
         // Add to the formatted quote
-        formattedQuote += "\n" + currentPartOfQuoteAuthor +
+        formattedQuote += currentPartOfQuoteAuthor +
             " [" + currentPartOfQuoteTimestamp_formatted + "]: " + currentPartOfQuoteContent;
 
         messageIDsUsed.push(currentOldestMessageObject.id);
@@ -1399,106 +1407,279 @@ bot.on('messageReactionRemove', (reaction, user) => {
                 }
             }
         }
+    } else if (reaction.emoji.name === "❓" || reaction.emoji.name === "❔") {
+        let currentActivePollIndex = -1;
+        for (let i = 0; i < activePollObjects.length; i++) {
+            if (activePollObjects[i].pollAdderObject.toString() === user.toString()) {
+                currentActivePollIndex = i;
+                break;
+            }
+        }
+
+        if (currentActivePollIndex > -1) {
+            for (let i = 0; i < activePollObjects[currentActivePollIndex].messageObjectsInPoll.length; i++) {
+                if (reaction.message.id === activePollObjects[currentActivePollIndex].messageObjectsInPoll[i].id) {
+                    activePollObjects[currentActivePollIndex].messageObjectsInPoll.splice(i, 1);
+
+                    if (activePollObjects[currentActivePollIndex].messageObjectsInPoll.length === 0) {
+                        // Tell the user they bailed.
+                        reaction.message.channel.messages.fetch(activePollObjects[currentActivePollIndex].endPollMessageID)
+                            .then(message => {
+                                // Edit the "Poll End Message" with a preview of the quote that the user is currently building.
+                                message.edit(`<@${user.id}>, the poll is cancelled. Start a new one by reacting to a message with ❓!`);
+                                console.log(user.toString() + " bailed while adding a new poll.");
+                            });
+
+                        activePollObjects.splice(currentActivePollIndex, 1);
+                        return;
+                    }
+                    return;
+                }
+            }
+        }
     }
 });
+
+function handleQuoteReactionAdd(reaction, user) {// Start off this index at -1
+    let currentActiveQuoteIndex = -1;
+    // If it exists, find the quote object in the activeQuoteObjects array
+    // that the user who reacted is currently constructing
+    for (let i = 0; i < activeQuoteObjects.length; i++) {
+        if (activeQuoteObjects[i].quoteAdderObject.toString() === user.toString()) {
+            currentActiveQuoteIndex = i;
+            break;
+        }
+    }
+
+    // This message is posted right after a new user starts constructing a new quote.
+    let quoteContinueMessage = getQuoteContinueMessage(user.id);
+
+    if (currentActiveQuoteIndex === -1) {
+        // This user is adding a new quote!
+        console.log(user.username + " has started adding a new quote...");
+
+        // Tell the user how to continue their quote, then push a new QuoteObject
+        // to the activeQuoteObjects array to keep track of it
+        reaction.message.channel.send(quoteContinueMessage)
+            .then(message => {
+                if (reaction.message.partial) {
+                    reaction.message.fetch()
+                        .then(fullmessage => {
+                            currentActiveQuoteIndex = activeQuoteObjects.push(new QuoteObject(
+                                user,
+                                fullmessage.guild.id,
+                                fullmessage.channel.id,
+                                fullmessage,
+                                message.id)
+                            ) - 1;
+
+                            updateEndQuoteMessage(reaction.message.channel, activeQuoteObjects[currentActiveQuoteIndex]);
+                        })
+                } else {
+                    currentActiveQuoteIndex = activeQuoteObjects.push(new QuoteObject(
+                        user,
+                        reaction.message.guild.id,
+                        reaction.message.channel.id,
+                        reaction.message,
+                        message.id)
+                    ) - 1;
+
+                    updateEndQuoteMessage(reaction.message.channel, activeQuoteObjects[currentActiveQuoteIndex]);
+                }
+            });
+    } else {
+        // This user is updating an existing quote!
+        console.log(user.username + " is updating an existing quote with internal index " + currentActiveQuoteIndex + "...");
+        // Add the message that they reacted to to the relevant `QuoteObject` in `activeQuoteObjects`
+        if (reaction.message.partial) {
+            reaction.message.fetch()
+                .then(fullmessage => {
+                    activeQuoteObjects[currentActiveQuoteIndex].messageObjectsInQuote.push(fullmessage);
+                    updateEndQuoteMessage(fullmessage.channel, activeQuoteObjects[currentActiveQuoteIndex]);
+                })
+        } else {
+            activeQuoteObjects[currentActiveQuoteIndex].messageObjectsInQuote.push(reaction.message);
+            updateEndQuoteMessage(reaction.message.channel, activeQuoteObjects[currentActiveQuoteIndex]);
+        }
+    }
+}
+
+function handleEndReactionAdd(reaction, user) {
+    // The user reacted to a message with the "END" emoji...maybe they want to end a quote?
+    let currentActiveQuoteIndex = -1;
+    let currentActivePollIndex = -1;
+    // If it exists, find the quote object in the activeQuoteObjects array
+    // that the user who reacted is currently constructing
+    for (let i = 0; i < activeQuoteObjects.length; i++) {
+        if (activeQuoteObjects[i].endQuoteMessageID === reaction.message.id) {
+            currentActiveQuoteIndex = i;
+            break;
+        }
+    }
+    for (let i = 0; i < activePollObjects.length; i++) {
+        if (activePollObjects[i].endPollMessageID === reaction.message.id) {
+            currentActivePollIndex = i;
+            break;
+        }
+    }
+
+    // If the currentActiveQuoteIndex is still at -1, that means the user isn't ending a quote,
+    // and just happened to react to a message with the "END" emoji.
+    if (currentActiveQuoteIndex > -1) {
+        // The user who reacted is finishing up an active quote
+        console.log(user.username + " has finished adding a new quote...");
+        let currentQuoteObject = activeQuoteObjects[currentActiveQuoteIndex];
+        let formattedQuote = formatQuote(currentQuoteObject);
+
+        // Save the quote to the database
+        let quote = {
+            userWhoAdded: activeQuoteObjects[currentActiveQuoteIndex].quoteAdderObject.toString(),
+            guild: activeQuoteObjects[currentActiveQuoteIndex].quoteGuild,
+            channel: activeQuoteObjects[currentActiveQuoteIndex].quoteChannel,
+            quote: formattedQuote
+        };
+        let id = bot.setQuote.run(quote).lastInsertRowid;
+        reaction.message.channel.send("Quote added to database with ID " + id);
+
+        // Remove the current QuoteObject from the activeQuoteObjects array
+        activeQuoteObjects.splice(currentActiveQuoteIndex, 1);
+    }
+
+    if (currentActivePollIndex > -1) {
+        console.log(user.username + " has finished creating a new poll...");
+        let currentPollObject = activePollObjects[currentActivePollIndex];
+        
+        let formattedPollObj = formatPoll(currentPollObject);
+
+        reaction.message.channel.send(formattedPollObj.message)
+            .then((sentMessage) => {
+                for (let i = 0; i < formattedPollObj.numPollOptions; i++) {
+                    sentMessage.react(possiblePollReactions[i]);
+                }
+            });
+
+        activePollObjects.splice(currentActivePollIndex, 1);
+    }
+}
+
+// This array holds all of the polls that the bot is currently keeping track of.
+let activePollObjects = [];
+let possiblePollReactions = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣"];
+function PollObject(pollAdderObject, pollGuild, pollChannel, firstMessageObject, endPollMessageID) {
+    this.pollAdderObject = pollAdderObject;
+    this.pollGuild = pollGuild;
+    this.pollChannel = pollChannel;
+    this.messageObjectsInPoll = [firstMessageObject];
+    this.endPollMessageID = endPollMessageID;
+}
+function formatPoll(pollObject) {
+    let retobj = {
+        "message": false,
+        "numPollOptions": pollObject.messageObjectsInPoll.length - 1, // `-1` to not count the poll question
+    };
+
+    if (retobj.numPollOptions > possiblePollReactions.length) {
+        retobj.numPollOptions = 0;
+        retobj.message = `Wow! Too many poll options for me. Try to create a poll with fewer than ${possiblePollReactions.length} options.`;
+        return retobj;
+    }
+
+    let messageIDsUsed = [];
+    let currentPollReactionIndex = 0;
+    while (pollObject.messageObjectsInPoll.length !== messageIDsUsed.length) {
+        let currentOldestMessageObjectIndex = 0;
+        let currentOldestMessageObject = null;
+        for (let j = 0; j < pollObject.messageObjectsInPoll.length; j++) {
+            if (messageIDsUsed.includes(pollObject.messageObjectsInPoll[j].id)) {
+                continue;
+            }
+
+            if (!currentOldestMessageObject || pollObject.messageObjectsInPoll[j].createdTimestamp < currentOldestMessageObject.createdTimestamp) {
+                currentOldestMessageObjectIndex = j;
+                currentOldestMessageObject = pollObject.messageObjectsInPoll[currentOldestMessageObjectIndex];
+            }
+        }
+
+        if (!retobj.message) {
+            retobj.message = `**${currentOldestMessageObject.content || ""}**\n`;
+        } else {
+            retobj.message += `\n${possiblePollReactions[currentPollReactionIndex]}: ${currentOldestMessageObject.content || ""}`;
+            currentPollReactionIndex++;
+        }
+
+        messageIDsUsed.push(currentOldestMessageObject.id);
+    }
+
+    retobj.message += `\n\nReact to this message with the emoji associated with the poll option for which you want to vote. You can vote for more than one option.`;
+
+    return retobj;
+}
+function getPollContinueMessage(userID) {
+    let pollContinueMessage = "tag poll options with ❓. React to this message with 🔚 to save poll options and start polling.";
+    pollContinueMessage = "<@" + userID + ">, " + pollContinueMessage;
+    return pollContinueMessage;
+}
+function handlePollReactionAdd(reaction, user) {
+    let currentActivePollIndex = -1;
+    for (let i = 0; i < activePollObjects.length; i++) {
+        console.log(activePollObjects[i].pollAdderObject.toString())
+        console.log(user.toString())
+        if (activePollObjects[i].pollAdderObject.toString() === user.toString()) {
+            currentActivePollIndex = i;
+            break;
+        }
+    }
+
+    if (currentActivePollIndex === -1) {
+        console.log(user.username + " has started creating a new poll...");
+        
+        let pollContinueMessage = getPollContinueMessage(user.id);
+
+        reaction.message.channel.send(pollContinueMessage)
+            .then(message => {
+                if (reaction.message.partial) {
+                    reaction.message.fetch()
+                        .then(fullmessage => {
+                            currentActivePollIndex = activePollObjects.push(new PollObject(
+                                user,
+                                fullmessage.guild.id,
+                                fullmessage.channel.id,
+                                fullmessage,
+                                message.id)
+                            ) - 1;
+                        })
+                } else {
+                    currentActivePollIndex = activeQuoteObjects.push(new QuoteObject(
+                        user,
+                        reaction.message.guild.id,
+                        reaction.message.channel.id,
+                        reaction.message,
+                        message.id)
+                    ) - 1;
+                }
+            });
+    } else {
+        console.log(user.username + " is updating an existing poll with internal index " + currentActivePollIndex + "...");
+        // Add the message that they reacted to to the relevant `QuoteObject` in `activeQuoteObjects`
+        if (reaction.message.partial) {
+            reaction.message.fetch()
+                .then(fullmessage => {
+                    activePollObjects[currentActivePollIndex].messageObjectsInPoll.push(fullmessage);
+                })
+        } else {
+            activePollObjects[currentActivePollIndex].messageObjectsInPoll.push(reaction.message);
+        }
+    }
+}
+
 bot.on('messageReactionAdd', (reaction, user) => {
     // If the user reacted to a message with the "ABCD" emoji...
     if (reaction.emoji.name === "🔠" || reaction.emoji.name === "🔡") {
-        // Start off this index at -1
-        let currentActiveQuoteIndex = -1;
-        // If it exists, find the quote object in the activeQuoteObjects array
-        // that the user who reacted is currently constructing
-        for (let i = 0; i < activeQuoteObjects.length; i++) {
-            if (activeQuoteObjects[i].quoteAdderObject.toString() === user.toString()) {
-                currentActiveQuoteIndex = i;
-                break;
-            }
-        }
-
-        // This message is posted right after a new user starts constructing a new quote.
-        let quoteContinueMessage = getQuoteContinueMessage(user.id);
-
-        if (currentActiveQuoteIndex === -1) {
-            // This user is adding a new quote!
-            console.log(user.username + " has started adding a new quote...");
-
-            // Tell the user how to continue their quote, then push a new QuoteObject
-            // to the activeQuoteObjects array to keep track of it
-            reaction.message.channel.send(quoteContinueMessage)
-                .then(message => {
-                    if (reaction.message.partial) {
-                        reaction.message.fetch()
-                            .then(fullmessage => {
-                                currentActiveQuoteIndex = activeQuoteObjects.push(new QuoteObject(
-                                    user,
-                                    fullmessage.guild.id,
-                                    fullmessage.channel.id,
-                                    fullmessage,
-                                    message.id)
-                                ) - 1;
-
-                                updateEndQuoteMessage(reaction.message.channel, activeQuoteObjects[currentActiveQuoteIndex]);
-                            })
-                    } else {
-                        currentActiveQuoteIndex = activeQuoteObjects.push(new QuoteObject(
-                            user,
-                            reaction.message.guild.id,
-                            reaction.message.channel.id,
-                            reaction.message,
-                            message.id)
-                        ) - 1;
-
-                        updateEndQuoteMessage(reaction.message.channel, activeQuoteObjects[currentActiveQuoteIndex]);
-                    }
-                });
-        } else {
-            // This user is updating an existing quote!
-            console.log(user.username + " is updating an existing quote with internal index " + currentActiveQuoteIndex + "...");
-            // Add the message that they reacted to to the relevant `QuoteObject` in `activeQuoteObjects`
-            if (reaction.message.partial) {
-                reaction.message.fetch()
-                    .then(fullmessage => {
-                        activeQuoteObjects[currentActiveQuoteIndex].messageObjectsInQuote.push(fullmessage);
-                        updateEndQuoteMessage(fullmessage.channel, activeQuoteObjects[currentActiveQuoteIndex]);
-                    })
-            } else {
-                activeQuoteObjects[currentActiveQuoteIndex].messageObjectsInQuote.push(reaction.message);
-                updateEndQuoteMessage(reaction.message.channel, activeQuoteObjects[currentActiveQuoteIndex]);
-            }
-        }
+        handleQuoteReactionAdd(reaction, user);
+    } else if (reaction.emoji.name === "❓" || reaction.emoji.name === "❔") {
+        handlePollReactionAdd(reaction, user);
     } else if (reaction.emoji.name === "🔚") {
-        // The user reacted to a message with the "END" emoji...maybe they want to end a quote?
-        let currentActiveQuoteIndex = -1;
-        // If it exists, find the quote object in the activeQuoteObjects array
-        // that the user who reacted is currently constructing
-        for (let i = 0; i < activeQuoteObjects.length; i++) {
-            if (activeQuoteObjects[i].endQuoteMessageID === reaction.message.id) {
-                currentActiveQuoteIndex = i;
-                break;
-            }
-        }
-
-        // If the currentActiveQuoteIndex is still at -1, that means the user isn't ending a quote,
-        // and just happened to react to a message with the "END" emoji.
-        if (currentActiveQuoteIndex > -1) {
-            // The user who reacted is finishing up an active quote
-            console.log(user.username + " has finished adding a new quote...");
-            let currentQuoteObject = activeQuoteObjects[currentActiveQuoteIndex];
-            let formattedQuote = formatQuote(currentQuoteObject);
-
-            // Save the quote to the database
-            let quote = {
-                userWhoAdded: activeQuoteObjects[currentActiveQuoteIndex].quoteAdderObject.toString(),
-                guild: activeQuoteObjects[currentActiveQuoteIndex].quoteGuild,
-                channel: activeQuoteObjects[currentActiveQuoteIndex].quoteChannel,
-                quote: formattedQuote
-            };
-            let id = bot.setQuote.run(quote).lastInsertRowid;
-            reaction.message.channel.send("Quote added to database with ID " + id);
-
-            // Remove the current QuoteObject from the activeQuoteObjects array
-            activeQuoteObjects.splice(currentActiveQuoteIndex, 1);
-        }
+        handleEndReactionAdd(reaction, user);
     }
 });
 
