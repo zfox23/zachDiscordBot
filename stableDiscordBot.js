@@ -1563,7 +1563,7 @@ function handleEndReactionAdd(reaction, user) {
         let id = bot.setQuote.run(quote).lastInsertRowid;
         reaction.message.channel.send("Quote added to database with ID " + id);
 
-        currentChannel.messages.fetch(currentQuoteObject.endQuoteMessageID)
+        reaction.message.channel.messages.fetch(currentQuoteObject.endQuoteMessageID)
             .then(endQuoteMessage => {
                 endQuoteMessage.delete();
                 currentQuoteObject.endQuoteMessageID = null;
