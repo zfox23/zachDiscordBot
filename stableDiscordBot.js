@@ -701,7 +701,7 @@ function handlePlaylistList(msg) {
         handleErrorMessage(msg, handlePlaylistList.name, "There's no playlist here.");
     } else if (playlistInfo[guild].playlist && playlistInfo[guild].playlist.length > 0) {
         console.log(`Listing playlist for guild ${guild}...`);
-        let playlistString = "```\n";
+        let playlistString;
         for (let i = 0; i < playlistInfo[guild].playlist.length; i++) {
             if (playlistInfo[guild].currentPlaylistIndex === i) {
                 playlistString += "🎶 ";
@@ -721,9 +721,11 @@ function handlePlaylistList(msg) {
 
             playlistString += `\n`;
         }
-        playlistString += "```\n";
 
-        msg.channel.send(playlistString);
+        let splitMsg = stringChop2000(playlistString);
+        splitMsg.forEach((strToSend) => {
+            msg.channel.send(`\`\`\`${strToSend}\`\`\``);
+        });
     } else {
         handleErrorMessage(msg, handlePlaylistList.name, 'Unhandled state.');
     }
@@ -1288,10 +1290,10 @@ bot.on('message', msg => {
             commandDictionary[command].handler(msg, args);
         } else if (!commandDictionary[command]) {
             let errorMsg = `There is no entry in the Command Dictionary associated with the command \`${commandInvocationCharacter + command}\`!`;
-            handleErrorMessage(msg, "bot.on('message')", errorMsg);
+            handleErrorMessage(msg, "bot.on('message')", errorMsg, true);
         } else if (commandDictionary[command] && !commandDictionary[command].handler) {
             let errorMsg = `There is no handler in the Command Dictionary for the command \`${commandInvocationCharacter + command}\`!`;
-            handleErrorMessage(msg, "bot.on('message')", errorMsg);
+            handleErrorMessage(msg, "bot.on('message')", errorMsg, true);
         }
     }
 });
@@ -1533,13 +1535,19 @@ function handleEndReactionAdd(reaction, user) {
 
         // Save the quote to the database
         let quote = {
-            userWhoAdded: activeQuoteObjects[currentActiveQuoteIndex].quoteAdderObject.toString(),
-            guild: activeQuoteObjects[currentActiveQuoteIndex].quoteGuild,
-            channel: activeQuoteObjects[currentActiveQuoteIndex].quoteChannel,
+            userWhoAdded: currentQuoteObject.quoteAdderObject.toString(),
+            guild: currentQuoteObject.quoteGuild,
+            channel: currentQuoteObject.quoteChannel,
             quote: formattedQuote
         };
         let id = bot.setQuote.run(quote).lastInsertRowid;
         reaction.message.channel.send("Quote added to database with ID " + id);
+
+        currentChannel.messages.fetch(currentQuoteObject.endQuoteMessageID)
+            .then(endQuoteMessage => {
+                endQuoteMessage.delete();
+                currentQuoteObject.endQuoteMessageID = null;
+            });
 
         // Remove the current QuoteObject from the activeQuoteObjects array
         activeQuoteObjects.splice(currentActiveQuoteIndex, 1);
