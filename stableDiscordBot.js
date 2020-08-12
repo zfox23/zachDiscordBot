@@ -202,8 +202,10 @@ function getYouTubeVideoTitleFromURL(msg, youTubeURL, callback) {
             return;
         }
 
-        let videoTitle = response.data.items[0].snippet.title;
-        callback(msg, videoTitle);
+        if (response.data.items[0]) {
+            let videoTitle = response.data.items[0].snippet.title;
+            callback(msg, videoTitle);
+        }
     });
 }
 
@@ -1369,6 +1371,9 @@ function updateEndQuoteMessage(currentChannel, quoteObject) {
         .then(message => {
             // Edit the "Quote End Message" with a preview of the quote that the user is currently building.
             message.edit(quoteContinueMessage + "\nHere's a preview of your quote:\n\n" + formatQuote(quoteObject));
+        })
+        .catch(error => {
+            console.error(`Couldn't fetch message associated with \`quoteObject.endQuoteMessageID\`.`);
         });
 }
 bot.on('messageReactionRemove', (reaction, user) => {
@@ -1396,6 +1401,9 @@ bot.on('messageReactionRemove', (reaction, user) => {
                                 // Edit the "Quote End Message" with a preview of the quote that the user is currently building.
                                 message.edit(`<@${user.id}>, you have removed all messages from the quote you were building. Start a new one by reacting to a message with 🔠!`);
                                 console.log(user.toString() + " bailed while adding a new quote.");
+                            })
+                            .catch(err => {
+                                console.error(`Couldn't fetch message associated with \`activeQuoteObjects[currentActiveQuoteIndex].endQuoteMessageID\`.`);
                             });
 
                         // Remove the current QuoteObject from the activeQuoteObjects array
@@ -1430,6 +1438,9 @@ bot.on('messageReactionRemove', (reaction, user) => {
                                 // Edit the "Poll End Message" with a preview of the quote that the user is currently building.
                                 message.edit(`<@${user.id}>, the poll is cancelled. Start a new one by reacting to a message with ❓!`);
                                 console.log(user.toString() + " bailed while adding a new poll.");
+                            })
+                            .catch(err => {
+                                console.error(`Couldn't fetch message associated with \`activePollObjects[currentActivePollIndex].endPollMessageID\`.`);
                             });
 
                         activePollObjects.splice(currentActivePollIndex, 1);
@@ -1477,6 +1488,9 @@ function handleQuoteReactionAdd(reaction, user) {// Start off this index at -1
 
                             updateEndQuoteMessage(reaction.message.channel, activeQuoteObjects[currentActiveQuoteIndex]);
                         })
+                        .catch(err => {
+                            console.error(`Couldn't fetch \`reaction.message\`.`);
+                        });
                 } else {
                     currentActiveQuoteIndex = activeQuoteObjects.push(new QuoteObject(
                         user,
@@ -1488,6 +1502,9 @@ function handleQuoteReactionAdd(reaction, user) {// Start off this index at -1
 
                     updateEndQuoteMessage(reaction.message.channel, activeQuoteObjects[currentActiveQuoteIndex]);
                 }
+            })
+            .catch(err => {
+                console.error(`Couldn't send \`quoteContinueMessage\`.`);
             });
     } else {
         // This user is updating an existing quote!
@@ -1499,6 +1516,9 @@ function handleQuoteReactionAdd(reaction, user) {// Start off this index at -1
                     activeQuoteObjects[currentActiveQuoteIndex].messageObjectsInQuote.push(fullmessage);
                     updateEndQuoteMessage(fullmessage.channel, activeQuoteObjects[currentActiveQuoteIndex]);
                 })
+                .catch(err => {
+                    console.error(`Couldn't fetch \`reaction.message\`.`);
+                });
         } else {
             activeQuoteObjects[currentActiveQuoteIndex].messageObjectsInQuote.push(reaction.message);
             updateEndQuoteMessage(reaction.message.channel, activeQuoteObjects[currentActiveQuoteIndex]);
@@ -1547,6 +1567,9 @@ function handleEndReactionAdd(reaction, user) {
             .then(endQuoteMessage => {
                 endQuoteMessage.delete();
                 currentQuoteObject.endQuoteMessageID = null;
+            })
+            .catch(err => {
+                console.error(`Couldn't fetch \`currentQuoteObject.endQuoteMessageID\`.`);
             });
 
         // Remove the current QuoteObject from the activeQuoteObjects array
@@ -1564,6 +1587,9 @@ function handleEndReactionAdd(reaction, user) {
                 for (let i = 0; i < formattedPollObj.numPollOptions; i++) {
                     sentMessage.react(possiblePollReactions[i]);
                 }
+            })
+            .catch(err => {
+                console.error(`Couldn't send \`formattedPollObj.message\`.`);
             });
 
         activePollObjects.splice(currentActivePollIndex, 1);
@@ -1656,6 +1682,9 @@ function handlePollReactionAdd(reaction, user) {
                                 message.id)
                             ) - 1;
                         })
+                        .catch(err => {
+                            console.error(`Couldn't fetch \`reaction.message\`.`);
+                        });
                 } else {
                     currentActivePollIndex = activeQuoteObjects.push(new QuoteObject(
                         user,
@@ -1665,6 +1694,9 @@ function handlePollReactionAdd(reaction, user) {
                         message.id)
                     ) - 1;
                 }
+            })
+            .catch(err => {
+                console.error(`Couldn't send \`pollContinueMessage\`.`);
             });
     } else {
         console.log(user.username + " is updating an existing poll with internal index " + currentActivePollIndex + "...");
@@ -1674,6 +1706,9 @@ function handlePollReactionAdd(reaction, user) {
                 .then(fullmessage => {
                     activePollObjects[currentActivePollIndex].messageObjectsInPoll.push(fullmessage);
                 })
+                .catch(err => {
+                    console.error(`Couldn't fetch \`reaction.message\`.`);
+                });
         } else {
             activePollObjects[currentActivePollIndex].messageObjectsInPoll.push(reaction.message);
         }
