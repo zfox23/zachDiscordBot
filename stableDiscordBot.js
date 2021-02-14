@@ -8,6 +8,7 @@
 //
 
 const Discord = require('discord.js');
+const discordBackup = require('discord-backup');
 const bot = new Discord.Client({ partials: ['MESSAGE', 'CHANNEL', 'REACTION'] });
 const auth = require('./auth.json');
 const youtubeAuthToken = auth.youtubeToken;
@@ -1071,6 +1072,45 @@ function handleWikiCommand(msg, args) {
     }
 }
 
+function handleBackupCommand(msg, args) {
+    if (args[0] === "create") {
+        if (!msg.member.hasPermission("ADMINISTRATOR")) {
+            return msg.channel.send("You must be an administrator to create a backup.");
+        }
+
+        msg.channel.send(`Creating backup! This might take a while...`);
+
+        discordBackup.setStorageFolder(`${__dirname}/backups/`);
+        discordBackup.create(msg.guild, {
+            jsonBeautify: true,
+            jsonSave: true,
+            saveImages: "base64"
+        }).then((backupData) => {
+            msg.author.send(`Backup created! To load it, use \`!backup load ${backupData.id}\` (NOT YET IMPLEMENTED).`);
+            msg.channel.send(`:white_check_mark: Server backup created successfully. <@${msg.author.id}>, I sent you a DM containing the backup's ID.`);
+        });
+    } else if (args[1] && args[0] === "info") {
+        let backupID = args[1];
+        discordBackup.fetch(backupID).then((backupInfo) => {
+            const backupDate = new Date(backupInfo.data.createdTimestamp);
+            const yyyy = date.getFullYear().toString(), mm = (date.getMonth()+1).toString(), dd = date.getDate().toString();
+            const formattedDate = `${yyyy}/${(mm[1]?mm:"0"+mm[0])}/${(dd[1]?dd:"0"+dd[0])}`;
+            let embed = new Discord.MessageEmbed()
+                .setAuthor(`Backup Information`)
+                .addField(`Backup ID`, backupInfo.id, false)
+                .addField(`Server ID`, backupInfo.data.guildID, false)
+                .addField(`Size (KB)`, backupInfo.size, false)
+                .addField(`Time Created`, formattedDate, false)
+                .setColor(`#FF0000`);
+            msg.channel.send(embed);
+        }).catch((err) => {
+            return msg.channel.send(`I couldn't find a backup with ID \`${backupID}\`.`);
+        });
+    } else {
+        showCommandUsage(msg, "backup");
+    }
+}
+
 const commandInvocationCharacter = "!";
 const commandDictionary = {
     'y': {
@@ -1251,7 +1291,21 @@ const commandDictionary = {
     },
     'poll': {
         'description': `The entry point into a poll system. Useful for things like scheduling times for a group to play games. To start a new poll, add the '❓' emoji to a message containing your poll question, then follow the instructions.`,
-        'haldner': handlePollCommand
+        'handler': handlePollCommand
+    },
+    'backup': {
+        'description': `The entry point into a server backup system.`,
+        'argCombos': [
+            {
+                'argCombo': 'create',
+                'description': `Creates a new server backup and stores it in \`./backups/\`.`
+            },
+            {
+                'argCombo': 'info <Backup ID>',
+                'description': `Returns information about the latest backup.`
+            },
+        ],
+        'handler': handleBackupCommand
     }
 };
 
