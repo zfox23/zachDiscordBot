@@ -486,7 +486,6 @@ function pushPlaylistEndingSoundThenPlayThenLeave(msg) {
     let randomEndingSoundFolderContents = fs.readdirSync(randomEndingSoundFolder);
     let randomEndingSoundFilename = randomEndingSoundFolderContents[Math.floor(Math.random() * randomEndingSoundFolderContents.length)];
     if (!randomEndingSoundFilename) {
-        handleErrorMessage(msg, pushPlaylistEndingSoundThenPlayThenLeave.name, "No random ending sounds!");
         return;
     }
 
