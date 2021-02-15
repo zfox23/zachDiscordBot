@@ -34,7 +34,7 @@ And more!
 1. Clone this repo.
 2. Rename `authTemplate.json` to `auth.json`.
 3. Inside `auth.json`, replace `YOUR_DISCORD_BOT_TOKEN_HERE` with your Discord bot token.
-4. Inside `auth.json`, replease `YOUR_YOUTUBE_API_TOKEN_HERE` with your YouTube API token.
+4. Inside `auth.json`, replace `YOUR_YOUTUBE_API_TOKEN_HERE` with your YouTube API token.
 5. Run `npm install` from a command prompt in your repo directory.
 6. Run `node ./stableDiscordBot.js` from a command prompt in your repo directory.
 7. Enjoy! 🎉
