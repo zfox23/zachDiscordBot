@@ -12,7 +12,7 @@
     "better-sqlite3": "*",
     "bufferutil": "*",
     "color-scheme": "*",
-    "discord-backup": "^2.4.1",
+    "discord-backup": "file:../discord-backup/discord-backup-2.4.1.tgz",
     "discord.js": "*",
     "google-auth-library": "*",
     "googleapis": "*",

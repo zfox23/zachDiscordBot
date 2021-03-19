@@ -1084,15 +1084,17 @@ function handleBackupCommand(msg, args) {
         discordBackup.create(msg.guild, {
             jsonBeautify: true,
             jsonSave: true,
-            saveImages: "base64"
+            saveImages: "base64",
+            maxMessagesPerChannel: args[1] ? args[1] : Number.MAX_SAFE_INTEGER,
         }).then((backupData) => {
             msg.author.send(`Backup created! To load it, use \`!backup load ${backupData.id}\` (NOT YET IMPLEMENTED).`);
             msg.channel.send(`:white_check_mark: Server backup created successfully. <@${msg.author.id}>, I sent you a DM containing the backup's ID.`);
         });
     } else if (args[1] && args[0] === "info") {
         let backupID = args[1];
+        discordBackup.setStorageFolder(`${__dirname}/backups/`);
         discordBackup.fetch(backupID).then((backupInfo) => {
-            const backupDate = new Date(backupInfo.data.createdTimestamp);
+            const date = new Date(backupInfo.data.createdTimestamp);
             const yyyy = date.getFullYear().toString(), mm = (date.getMonth()+1).toString(), dd = date.getDate().toString();
             const formattedDate = `${yyyy}/${(mm[1]?mm:"0"+mm[0])}/${(dd[1]?dd:"0"+dd[0])}`;
             let embed = new Discord.MessageEmbed()
@@ -1100,11 +1102,11 @@ function handleBackupCommand(msg, args) {
                 .addField(`Backup ID`, backupInfo.id, false)
                 .addField(`Server ID`, backupInfo.data.guildID, false)
                 .addField(`Size (KB)`, backupInfo.size, false)
-                .addField(`Time Created`, formattedDate, false)
+                .addField(`Date Created`, formattedDate, false)
                 .setColor(`#FF0000`);
             msg.channel.send(embed);
         }).catch((err) => {
-            return msg.channel.send(`I couldn't find a backup with ID \`${backupID}\`.`);
+            return msg.channel.send(`Error while retrieving backup with ID \`${backupID}\`\nError:\n\`\`\`\n${err}\n\`\`\`.`);
         });
     } else {
         showCommandUsage(msg, "backup");
